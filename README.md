@@ -33,6 +33,10 @@ The controller tracks two things at all times: **target curing temperature** and
 - Controlling **boiler pressure** is preferred over direct temperature control, since pressure is easier to manage in a vessel and temperature can be derived from it.
 - The scheduling engine itself is handled upstream; this system receives the production schedule as an input rather than generating it.
 
+### System Architecture
+
+![System Architecture](architecture_block_diagram.png)
+
 ## System Components
 
 | # | Component | Description |
