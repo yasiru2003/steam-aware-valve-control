@@ -69,24 +69,3 @@ Run the simulator under ordinary control vs. smart control and compare steam use
 | Weeks 7–9 | Add schedule input, peak smoothing, and idle valve shut-off |
 | Weeks 10–12 | Build edge prototype and dashboard; run test scenarios |
 | Weeks 13–14 | Compare results, write report, present findings |
-
-## Project Log
-
-**July 9, 2026 — Supervisor Meeting #1 (Dr. Sulochana):** Project scope confirmed with the supervisor.
-
-**July 10, 2026 — Review Meeting #1 / Project Kickoff:**
-- Reviewed tyre manufacturing and curing process fundamentals.
-- Confirmed solid-tyre focus and the demand-peak / idle-waste problem framing.
-- Agreed on a phased factory deployment approach (sensors → single valve → full expansion).
-- **Action items:**
-  - Share project workspace with the supervisor
-  - Present process understanding and a block diagram on the next call
-  - Prepare a rough hardware list
-  - Begin control algorithm work from mid-July through the first week of August (simulated data, no hardware needed yet)
-  - Supervisor to handle hardware purchasing and bring hardware to Sri Lanka by end of August
-  - Recurring bi-weekly call slot scheduled via WhatsApp
-- Documentation and implementation are to proceed **in parallel** to avoid duplicated effort at presentation time.
-
-## Notes
-
-This project follows a lab-scale simulation-first approach: the control algorithm and digital twin are developed and validated in simulation before any physical hardware is introduced (hardware arrives end of August 2026). AI tools are used to assist with code generation, with an emphasis on understanding all generated code.
