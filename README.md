@@ -1,12 +1,5 @@
 # Steam-Aware Scheduling & Smart Valve Control for Tyre Curing
 
-**Final Year Project (Embedded Project) — University of Moratuwa**
-**Supervisor:** Dr. Sulochana
-**Status:** In progress — Weeks 1–2 (scope & requirements)
-**Last updated:** July 2026
-
----
-
 ## Overview
 
 Solid tyre manufacturing relies on **curing presses** that use steam to harden rubber in a hot mould. Steam is wasted on the factory floor in two distinct ways:
