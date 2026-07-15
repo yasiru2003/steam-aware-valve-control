@@ -306,7 +306,7 @@ def render_dashboard_state(idx):
         xaxis=dict(range=[0, sim_hours]),
         yaxis=dict(range=[t_amb - 5, max(T_n.max(), T_s.max()) + 5])
     )
-    chart_placeholder1.plotly_chart(fig_temp, use_container_width=True)
+    chart_placeholder1.plotly_chart(fig_temp, use_container_width=True, key="temp_chart_display")
 
     # Valve opening chart
     fig_valve = go.Figure()
@@ -333,7 +333,7 @@ def render_dashboard_state(idx):
         xaxis=dict(range=[0, sim_hours]),
         yaxis=dict(range=[-0.05, 1.05])
     )
-    chart_placeholder2.plotly_chart(fig_valve, use_container_width=True)
+    chart_placeholder2.plotly_chart(fig_valve, use_container_width=True, key="valve_chart_display")
 
     # Cumulative steam usage chart
     fig_steam = go.Figure()
@@ -360,7 +360,7 @@ def render_dashboard_state(idx):
         xaxis=dict(range=[0, sim_hours]),
         yaxis=dict(range=[-2, max(cum_steam_n.max(), cum_steam_s.max()) + 5])
     )
-    chart_placeholder3.plotly_chart(fig_steam, use_container_width=True)
+    chart_placeholder3.plotly_chart(fig_steam, use_container_width=True, key="steam_chart_display")
 
 # Run animation or render static results
 if run_btn and animate:
@@ -368,12 +368,10 @@ if run_btn and animate:
     step_size = len(T_s) // n_frames
     for frame in range(1, n_frames + 1):
         idx = frame * step_size
-        if idx > len(T_s):
+        if frame == n_frames or idx > len(T_s):
             idx = len(T_s)
         render_dashboard_state(idx)
         time.sleep(1.0 / animation_speed)
-    # Ensure final state is perfectly rendered
-    render_dashboard_state(len(T_s))
 else:
     # Render static final state immediately
     render_dashboard_state(len(T_s))
