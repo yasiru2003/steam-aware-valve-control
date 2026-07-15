@@ -306,7 +306,7 @@ def render_dashboard_state(idx):
         xaxis=dict(range=[0, sim_hours]),
         yaxis=dict(range=[t_amb - 5, max(T_n.max(), T_s.max()) + 5])
     )
-    chart_placeholder1.plotly_chart(fig_temp, use_container_width=True, key="temp_chart_display")
+    chart_placeholder1.plotly_chart(fig_temp, use_container_width=True, key=f"temp_chart_display_{idx}")
 
     # Valve opening chart
     fig_valve = go.Figure()
@@ -333,7 +333,7 @@ def render_dashboard_state(idx):
         xaxis=dict(range=[0, sim_hours]),
         yaxis=dict(range=[-0.05, 1.05])
     )
-    chart_placeholder2.plotly_chart(fig_valve, use_container_width=True, key="valve_chart_display")
+    chart_placeholder2.plotly_chart(fig_valve, use_container_width=True, key=f"valve_chart_display_{idx}")
 
     # Cumulative steam usage chart
     fig_steam = go.Figure()
@@ -360,7 +360,7 @@ def render_dashboard_state(idx):
         xaxis=dict(range=[0, sim_hours]),
         yaxis=dict(range=[-2, max(cum_steam_n.max(), cum_steam_s.max()) + 5])
     )
-    chart_placeholder3.plotly_chart(fig_steam, use_container_width=True, key="steam_chart_display")
+    chart_placeholder3.plotly_chart(fig_steam, use_container_width=True, key=f"steam_chart_display_{idx}")
 
 # Run animation or render static results
 if run_btn and animate:
