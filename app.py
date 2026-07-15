@@ -151,11 +151,6 @@ with st.sidebar.expander("Curing & Idle Schedule", expanded=True):
     gap_dur_h = st.slider("Idle Gap Duration (hours)", min_value=0.0, max_value=sim_hours - gap_start_h, value=1.5, step=0.1)
     dt_sec = st.slider("Simulation Step dt (seconds)", min_value=1.0, max_value=60.0, value=5.0, step=1.0)
 
-# Expander for Animation Settings
-with st.sidebar.expander("Visualization Settings", expanded=True):
-    animate = st.checkbox("Animate Live Simulation", value=True)
-    animation_speed = st.slider("Animation Speed (Steps/sec)", min_value=10, max_value=60, value=25)
-
 # Create PressParams
 params = PressParams(
     UA_steam=ua_steam,
@@ -211,70 +206,65 @@ pct_saved = (steam_saved / total_n) * 100 if total_n > 0 else 0
 
 # ----------------- MAIN LAYOUT -----------------
 
+import time
+
 # Control button container
 btn_col1, btn_col2 = st.columns([1, 3])
 with btn_col1:
     run_btn = st.button("Start Curing Simulation", type="primary", use_container_width=True)
 with btn_col2:
-    if run_btn and animate:
-        st.info("Animating simulation in real-time. Please wait.")
+    if run_btn:
+        st.success("Simulation execution complete.")
     else:
-        st.success("Simulation loaded. Adjust settings in the sidebar or click 'Start Curing Simulation' to animate.")
+        st.info("Adjust parameters in the sidebar and click 'Start Curing Simulation' to execute the run.")
+
+# Simulate computation time if run button is clicked
+if run_btn:
+    progress_bar = st.progress(0)
+    for percent_complete in range(100):
+        time.sleep(0.005)
+        progress_bar.progress(percent_complete + 1)
+    progress_bar.empty()
 
 st.write("")
 
-# Placeholders for metrics cards and charts
-kpi_placeholder = st.empty()
-st.write("---")
+# KPI Metrics Cards
+col1, col2, col3 = st.columns(3)
 
-chart_col1, chart_col2 = st.columns(2)
-with chart_col1:
-    st.subheader("Press Temperature Profile")
-    chart_placeholder1 = st.empty()
-
-with chart_col2:
-    st.subheader("Valve Opening (Control Signal)")
-    chart_placeholder2 = st.empty()
-
-st.subheader("Cumulative Steam Consumption")
-chart_placeholder3 = st.empty()
-
-st.write("---")
-
-import time
-
-# Function to render charts and KPIs at a specific index limit (for animation)
-def render_dashboard_state(idx):
-    # Calculate intermediate metrics
-    flow_s_slice = flow_s[:idx]
-    flow_n_slice = flow_n[:idx]
-    total_s_temp = np.sum(flow_s_slice) * dt_sec
-    total_n_temp = np.sum(flow_n_slice) * dt_sec
-    steam_saved_temp = total_n_temp - total_s_temp
-    pct_saved_temp = (steam_saved_temp / total_n_temp) * 100 if total_n_temp > 0 else 0
-    
-    # Update KPI cards
-    kpi_placeholder.markdown(f"""
-    <div style="display: flex; gap: 1rem; width: 100%;">
-        <div class="kpi-card" style="flex: 1;">
-            <div class="kpi-title">Naive Control (Default)</div>
-            <div class="kpi-value">{total_n_temp:.2f} <span class="kpi-unit">kg</span></div>
-            <div class="kpi-badge badge-red">Valve stays cracked at 15%</div>
-        </div>
-        <div class="kpi-card" style="flex: 1;">
-            <div class="kpi-title">Smart Idle Shutoff</div>
-            <div class="kpi-value">{total_s_temp:.2f} <span class="kpi-unit">kg</span></div>
-            <div class="kpi-badge badge-blue">Valve fully closed during idle</div>
-        </div>
-        <div class="kpi-card" style="flex: 1;">
-            <div class="kpi-title">Steam Savings</div>
-            <div class="kpi-value">{steam_saved_temp:.2f} <span class="kpi-unit">kg</span></div>
-            <div class="kpi-badge badge-green">-{pct_saved_temp:.1f}% Consumption</div>
-        </div>
+with col1:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">Naive Control (Default)</div>
+        <div class="kpi-value">{total_n:.2f} <span class="kpi-unit">kg</span></div>
+        <div class="kpi-badge badge-red">Valve stays cracked at 15%</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Temperature profile chart
+with col2:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">Smart Idle Shutoff</div>
+        <div class="kpi-value">{total_s:.2f} <span class="kpi-unit">kg</span></div>
+        <div class="kpi-badge badge-blue">Valve fully closed during idle</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col3:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">Steam Savings</div>
+        <div class="kpi-value">{steam_saved:.2f} <span class="kpi-unit">kg</span></div>
+        <div class="kpi-badge badge-green">-{pct_saved:.1f}% Consumption</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.write("---")
+
+# Charts layout
+chart_col1, chart_col2 = st.columns(2)
+
+with chart_col1:
+    st.subheader("Press Temperature Profile")
     fig_temp = go.Figure()
     fig_temp.add_hline(
         y=cure_temp, 
@@ -284,13 +274,13 @@ def render_dashboard_state(idx):
         annotation_position="bottom right"
     )
     fig_temp.add_trace(go.Scatter(
-        x=hours_n[:idx], y=T_n[:idx],
+        x=hours_n, y=T_n,
         mode='lines',
         name='Naive Control',
         line=dict(color='#f87171', width=2, dash='dash')
     ))
     fig_temp.add_trace(go.Scatter(
-        x=hours_s[:idx], y=T_s[:idx],
+        x=hours_s, y=T_s,
         mode='lines',
         name='Smart Control',
         line=dict(color='#6366f1', width=3)
@@ -304,20 +294,21 @@ def render_dashboard_state(idx):
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         xaxis=dict(range=[0, sim_hours]),
-        yaxis=dict(range=[t_amb - 5, max(T_n.max(), T_s.max()) + 5])
+        yaxis=dict(range=[params.T_amb - 5, max(T_n.max(), T_s.max()) + 5])
     )
-    chart_placeholder1.plotly_chart(fig_temp, use_container_width=True, key=f"temp_chart_display_{idx}")
+    st.plotly_chart(fig_temp, use_container_width=True, key="temp_chart_display")
 
-    # Valve opening chart
+with chart_col2:
+    st.subheader("Valve Opening (Control Signal)")
     fig_valve = go.Figure()
     fig_valve.add_trace(go.Scatter(
-        x=hours_n[:idx], y=u_n[:idx],
+        x=hours_n, y=u_n,
         mode='lines',
         name='Naive Control',
         line=dict(color='#f87171', width=2, dash='dash')
     ))
     fig_valve.add_trace(go.Scatter(
-        x=hours_s[:idx], y=u_s[:idx],
+        x=hours_s, y=u_s,
         mode='lines',
         name='Smart Control',
         line=dict(color='#6366f1', width=3)
@@ -333,48 +324,36 @@ def render_dashboard_state(idx):
         xaxis=dict(range=[0, sim_hours]),
         yaxis=dict(range=[-0.05, 1.05])
     )
-    chart_placeholder2.plotly_chart(fig_valve, use_container_width=True, key=f"valve_chart_display_{idx}")
+    st.plotly_chart(fig_valve, use_container_width=True, key="valve_chart_display")
 
-    # Cumulative steam usage chart
-    fig_steam = go.Figure()
-    fig_steam.add_trace(go.Scatter(
-        x=hours_n[:idx], y=cum_steam_n[:idx],
-        mode='lines',
-        name='Naive Cumulative Steam',
-        line=dict(color='#f87171', width=2, dash='dash')
-    ))
-    fig_steam.add_trace(go.Scatter(
-        x=hours_s[:idx], y=cum_steam_s[:idx],
-        mode='lines',
-        name='Smart Cumulative Steam',
-        line=dict(color='#10b981', width=3)
-    ))
-    fig_steam.update_layout(
-        template="plotly_dark",
-        xaxis_title="Time (hours)",
-        yaxis_title="Cumulative Steam (kg)",
-        margin=dict(l=40, r=40, t=20, b=40),
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        xaxis=dict(range=[0, sim_hours]),
-        yaxis=dict(range=[-2, max(cum_steam_n.max(), cum_steam_s.max()) + 5])
-    )
-    chart_placeholder3.plotly_chart(fig_steam, use_container_width=True, key=f"steam_chart_display_{idx}")
+st.subheader("Cumulative Steam Consumption")
+fig_steam = go.Figure()
+fig_steam.add_trace(go.Scatter(
+    x=hours_n, y=cum_steam_n,
+    mode='lines',
+    name='Naive Cumulative Steam',
+    line=dict(color='#f87171', width=2, dash='dash')
+))
+fig_steam.add_trace(go.Scatter(
+    x=hours_s, y=cum_steam_s,
+    mode='lines',
+    name='Smart Cumulative Steam',
+    line=dict(color='#10b981', width=3)
+))
+fig_steam.update_layout(
+    template="plotly_dark",
+    xaxis_title="Time (hours)",
+    yaxis_title="Cumulative Steam (kg)",
+    margin=dict(l=40, r=40, t=20, b=40),
+    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    plot_bgcolor='rgba(0,0,0,0)',
+    paper_bgcolor='rgba(0,0,0,0)',
+    xaxis=dict(range=[0, sim_hours]),
+    yaxis=dict(range=[-2, max(cum_steam_n.max(), cum_steam_s.max()) + 5])
+)
+st.plotly_chart(fig_steam, use_container_width=True, key="steam_chart_display")
 
-# Run animation or render static results
-if run_btn and animate:
-    n_frames = 30
-    step_size = len(T_s) // n_frames
-    for frame in range(1, n_frames + 1):
-        idx = frame * step_size
-        if frame == n_frames or idx > len(T_s):
-            idx = len(T_s)
-        render_dashboard_state(idx)
-        time.sleep(1.0 / animation_speed)
-else:
-    # Render static final state immediately
-    render_dashboard_state(len(T_s))
+st.write("---")
 
 # Expandable simulation data logs
 with st.expander("Detailed Simulation Logs"):
