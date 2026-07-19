@@ -1,0 +1,350 @@
+import streamlit as st
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+
+from parameters import DEFAULT_PARAMS
+from simulation import run_simulation
+
+# Set up page styling and layout
+st.set_page_config(
+    page_title="Solid Tyre Curing Press Digital Twin",
+    page_icon=None,
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Premium dark theme and styling injection
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Outfit', sans-serif;
+}
+
+.header-container {
+    background: linear-gradient(135deg, #1e1b4b 0%, #311042 100%);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 25px;
+    border: 1px solid #4338ca;
+    box-shadow: 0 10px 30px rgba(67, 56, 202, 0.15);
+}
+
+.header-title {
+    color: #f8fafc;
+    font-size: 2.3rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    background: linear-gradient(90deg, #a5b4fc, #f472b6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.header-subtitle {
+    color: #cbd5e1;
+    font-size: 1.05rem;
+    font-weight: 400;
+}
+
+.kpi-card {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+}
+
+.kpi-card:hover {
+    transform: translateY(-3px);
+    border-color: #6366f1;
+}
+
+.kpi-title {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.kpi-value {
+    font-size: 2.1rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 4px;
+}
+
+.kpi-unit {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #cbd5e1;
+}
+
+.kpi-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-top: 8px;
+}
+
+.badge-green {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-blue {
+    background-color: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badge-red {
+    background-color: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Application Header
+st.markdown("""
+<div class="header-container">
+    <div class="header-title">Solid Tyre Curing Press Digital Twin</div>
+    <div class="header-subtitle">Real-time dynamic thermal simulation & schedule-aware smart valve control comparison.</div>
+</div>
+""", unsafe_allow_html=True)
+
+# ----------------- SIDEBAR PARAMETERS -----------------
+st.sidebar.title("Configuration Parameters")
+
+# Expander for Physical Press Parameters
+with st.sidebar.expander("Press Physical Parameters", expanded=True):
+    mass = st.number_input("Press Mould Mass (kg)", min_value=50.0, max_value=2000.0, value=300.0, step=25.0)
+    ua_steam = st.slider("UA_steam (Steam Conductance, W/K)", min_value=100.0, max_value=1000.0, value=DEFAULT_PARAMS["UA_steam"], step=25.0)
+    h_loss = st.slider("h_loss (Heat Loss Coeff, W/m²·K)", min_value=2.0, max_value=50.0, value=DEFAULT_PARAMS["h_loss"], step=1.0)
+    t_sat = st.slider("T_sat (Steam Temp, °C)", min_value=100.0, max_value=200.0, value=DEFAULT_PARAMS["T_sat"], step=1.0)
+    t_amb = st.slider("T_ambient (°C)", min_value=10.0, max_value=50.0, value=DEFAULT_PARAMS["T_ambient"], step=1.0)
+    h_fg = st.number_input("h_fg (Latent Heat, J/kg)", min_value=1500000.0, max_value=2500000.0, value=DEFAULT_PARAMS["h_fg"], step=10000.0)
+
+# Expander for PID Settings
+with st.sidebar.expander("PID Controller Gains", expanded=True):
+    kp = st.slider("Kp (Proportional)", min_value=0.001, max_value=0.200, value=0.02, step=0.001, format="%.3f")
+    ki = st.slider("Ki (Integral)", min_value=0.00000, max_value=0.00200, value=0.00015, step=0.00001, format="%.5f")
+    kd = st.slider("Kd (Derivative)", min_value=0.000, max_value=0.100, value=0.01, step=0.001, format="%.3f")
+
+# Expander for Curing & Idle Schedule
+with st.sidebar.expander("Curing & Schedule Parameters", expanded=True):
+    cure_temp = st.slider("Target Curing Temp (°C)", min_value=100.0, max_value=150.0, value=DEFAULT_PARAMS["T_target"], step=1.0)
+    cure_time_h = st.slider("Curing Hold Time (hours)", min_value=1.0, max_value=12.0, value=DEFAULT_PARAMS["cure_time_s"] / 3600.0, step=0.5)
+    sim_hours = st.slider("Simulation Duration (hours)", min_value=1.0, max_value=24.0, value=10.0, step=0.5)
+    gap_start_h = st.slider("Idle Gap Start (hours)", min_value=0.0, max_value=sim_hours, value=7.0, step=0.1)
+    gap_dur_h = st.slider("Idle Gap Duration (hours)", min_value=0.0, max_value=sim_hours - gap_start_h, value=1.5, step=0.1)
+    dt_sec = st.slider("Simulation Step dt (seconds)", min_value=1.0, max_value=60.0, value=5.0, step=1.0)
+
+custom_params = {
+    "UA_steam": ua_steam,
+    "h_loss": h_loss,
+    "T_sat": t_sat,
+    "T_ambient": t_amb,
+    "h_fg": h_fg,
+    "T_target": cure_temp,
+    "cure_time_s": cure_time_h * 3600.0
+}
+
+# ----------------- SIMULATION EXECUTION -----------------
+# Run Smart Control Simulation
+t_s, T_s, u_s, flow_s, stages_s, total_s = run_simulation(
+    mass=mass,
+    params=custom_params,
+    hours=sim_hours,
+    dt=dt_sec,
+    gap_start_s=gap_start_h * 3600,
+    gap_duration_s=gap_dur_h * 3600,
+    kp=kp,
+    ki=ki,
+    kd=kd,
+    smart_idle_shutoff=True
+)
+
+# Run Naive Control Simulation
+t_n, T_n, u_n, flow_n, stages_n, total_n = run_simulation(
+    mass=mass,
+    params=custom_params,
+    hours=sim_hours,
+    dt=dt_sec,
+    gap_start_s=gap_start_h * 3600,
+    gap_duration_s=gap_dur_h * 3600,
+    kp=kp,
+    ki=ki,
+    kd=kd,
+    smart_idle_shutoff=False
+)
+
+hours_s = t_s / 3600.0
+hours_n = t_n / 3600.0
+
+cum_steam_s = np.cumsum(flow_s) * dt_sec
+cum_steam_n = np.cumsum(flow_n) * dt_sec
+
+steam_saved = total_n - total_s
+pct_saved = (steam_saved / total_n) * 100.0 if total_n > 0 else 0.0
+
+# ----------------- MAIN VIEW KPI CARDS -----------------
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">Naive Control (Default)</div>
+        <div class="kpi-value">{total_n:.2f} <span class="kpi-unit">kg</span></div>
+        <div class="kpi-badge badge-red">Valve cracked at 15% during idle</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col2:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">Smart Idle Shutoff</div>
+        <div class="kpi-value">{total_s:.2f} <span class="kpi-unit">kg</span></div>
+        <div class="kpi-badge badge-blue">Valve 0% closed during idle</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col3:
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-title">Steam Savings</div>
+        <div class="kpi-value">{steam_saved:.2f} <span class="kpi-unit">kg</span></div>
+        <div class="kpi-badge badge-green">-{pct_saved:.1f}% Energy Saved</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.write("---")
+
+# ----------------- CHARTS LAYOUT -----------------
+chart_col1, chart_col2 = st.columns(2)
+
+with chart_col1:
+    st.subheader("Press Temperature Profile")
+    fig_temp = go.Figure()
+    fig_temp.add_hline(
+        y=cure_temp,
+        line_dash="dot",
+        line_color="#94a3b8",
+        annotation_text="Target Curing Temp",
+        annotation_position="bottom right"
+    )
+    fig_temp.add_trace(go.Scatter(
+        x=hours_n, y=T_n,
+        mode='lines',
+        name='Naive Control',
+        line=dict(color='#f87171', width=2, dash='dash')
+    ))
+    fig_temp.add_trace(go.Scatter(
+        x=hours_s, y=T_s,
+        mode='lines',
+        name='Smart Control',
+        line=dict(color='#6366f1', width=3)
+    ))
+    fig_temp.update_layout(
+        template="plotly_dark",
+        xaxis_title="Time (hours)",
+        yaxis_title="Press Temperature (°C)",
+        margin=dict(l=40, r=40, t=20, b=40),
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(range=[0, sim_hours]),
+        yaxis=dict(range=[t_amb - 5, max(T_n.max(), T_s.max()) + 5])
+    )
+    st.plotly_chart(fig_temp, use_container_width=True)
+
+with chart_col2:
+    st.subheader("Valve Opening Signal (u)")
+    fig_valve = go.Figure()
+    fig_valve.add_trace(go.Scatter(
+        x=hours_n, y=u_n,
+        mode='lines',
+        name='Naive Control',
+        line=dict(color='#f87171', width=2, dash='dash')
+    ))
+    fig_valve.add_trace(go.Scatter(
+        x=hours_s, y=u_s,
+        mode='lines',
+        name='Smart Control',
+        line=dict(color='#6366f1', width=3)
+    ))
+    fig_valve.update_layout(
+        template="plotly_dark",
+        xaxis_title="Time (hours)",
+        yaxis_title="Valve Opening Ratio (0 to 1)",
+        margin=dict(l=40, r=40, t=20, b=40),
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(range=[0, sim_hours]),
+        yaxis=dict(range=[-0.05, 1.05])
+    )
+    st.plotly_chart(fig_valve, use_container_width=True)
+
+st.subheader("Cumulative Steam Consumption")
+fig_steam = go.Figure()
+fig_steam.add_trace(go.Scatter(
+    x=hours_n, y=cum_steam_n,
+    mode='lines',
+    name='Naive Cumulative Steam',
+    line=dict(color='#f87171', width=2, dash='dash')
+))
+fig_steam.add_trace(go.Scatter(
+    x=hours_s, y=cum_steam_s,
+    mode='lines',
+    name='Smart Cumulative Steam',
+    line=dict(color='#10b981', width=3)
+))
+fig_steam.update_layout(
+    template="plotly_dark",
+    xaxis_title="Time (hours)",
+    yaxis_title="Cumulative Steam (kg)",
+    margin=dict(l=40, r=40, t=20, b=40),
+    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    plot_bgcolor='rgba(0,0,0,0)',
+    paper_bgcolor='rgba(0,0,0,0)',
+    xaxis=dict(range=[0, sim_hours]),
+    yaxis=dict(range=[-1, max(cum_steam_n.max(), cum_steam_s.max()) + 2])
+)
+st.plotly_chart(fig_steam, use_container_width=True)
+
+st.write("---")
+
+# ----------------- SIMULATION DATA EXPORT -----------------
+with st.expander("Detailed Simulation Logs"):
+    log_df = pd.DataFrame({
+        "Time (s)": t_s,
+        "Time (h)": hours_s,
+        "Smart Stage": stages_s,
+        "Smart Temp (°C)": T_s,
+        "Smart Valve Ratio": u_s,
+        "Smart Steam (kg)": cum_steam_s,
+        "Naive Stage": stages_n,
+        "Naive Temp (°C)": T_n,
+        "Naive Valve Ratio": u_n,
+        "Naive Steam (kg)": cum_steam_n,
+    })
+    
+    st.dataframe(log_df.style.format(precision=3), use_container_width=True)
+    
+    csv_data = log_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Download Simulation Data as CSV",
+        data=csv_data,
+        file_name="tyre_press_digital_twin_data.csv",
+        mime="text/csv",
+    )
