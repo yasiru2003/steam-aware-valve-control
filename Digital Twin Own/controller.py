@@ -1,5 +1,5 @@
 """
-Control algorithms for steam valve control (PID Controller).
+Control algorithms for steam valve control (PID Controller & Peak Demand Smoothing).
 """
 
 import numpy as np
@@ -48,3 +48,48 @@ class PID:
         """Reset internal memory states."""
         self.integral = 0.0
         self.prev_error = None
+
+
+class PeakSmoothingController:
+    """
+    Multi-Press Peak Demand Controller.
+    Staggers and limits simultaneous valve ramp-ups across presses so total boiler steam flow rate
+    does not spike above max_allowed_flow_kg_s.
+    """
+    def __init__(self, max_allowed_flow_kg_s: float = 0.06):
+        self.max_allowed_flow_kg_s = max_allowed_flow_kg_s
+
+    def apply_smoothing(self, valve_signals: dict, press_objects: dict, enable_smoothing: bool = True) -> dict:
+        """
+        Adjusts requested valve opening ratios across all presses if simultaneous demand spikes.
+        """
+        if not enable_smoothing:
+            return valve_signals  # Return raw unmanaged valve signals
+
+        # Calculate estimated total steam flow rate if raw valve signals are used
+        total_estimated_flow = 0.0
+        heating_press_ids = []
+
+        for p_id, press in press_objects.items():
+            u = valve_signals[p_id]
+            Q_est = u * press.params["UA_steam"] * max(press.params["T_sat"] - press.T_press, 0.0)
+            flow_est = Q_est / press.params["h_fg"]
+            total_estimated_flow += flow_est
+
+            if press.stage == "heating" and u > 0.3:
+                heating_press_ids.append(p_id)
+
+        # If estimated flow exceeds boiler limit and multiple presses are heating simultaneously
+        if total_estimated_flow > self.max_allowed_flow_kg_s and len(heating_press_ids) > 1:
+            # Stagger heating presses: prioritize the press furthest along in heating
+            heating_press_ids.sort(key=lambda pid: press_objects[pid].T_press, reverse=True)
+            
+            # Allow highest temp press full ramp, soften valve opening for secondary heating presses
+            smoothed_signals = valve_signals.copy()
+            for rank, pid in enumerate(heating_press_ids):
+                if rank > 0:
+                    # Scale down valve signal for lower priority heating presses to smooth peak
+                    smoothed_signals[pid] = min(smoothed_signals[pid], 0.4 / (rank + 1))
+            return smoothed_signals
+
+        return valve_signals

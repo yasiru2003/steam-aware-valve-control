@@ -1,66 +1,119 @@
 """
-Simulation Runner Engine for Digital Twin.
+Multi-Press Digital Twin Simulation Engine.
+Runs concurrent presses on a shared boiler line, evaluating Peak Demand Smoothing and Idle Shutoff.
 """
 
 import numpy as np
+import pandas as pd
 from press_model import CuringPress
+from controller import PeakSmoothingController
+from schedule_reader import load_schedule_from_csv
 
 
-def run_simulation(
+def run_multi_press_simulation(
+    schedule_filepath="Digital Twin Own/sample_schedule.csv",
     mass=300.0,
     params=None,
-    hours=10.0,
+    hours=12.0,
     dt=5.0,
-    gap_start_s=7.0 * 3600,
-    gap_duration_s=1.5 * 3600,
     kp=0.02,
     ki=0.00015,
     kd=0.01,
-    smart_idle_shutoff=True
+    smart_idle_shutoff=True,
+    enable_peak_smoothing=True,
+    max_boiler_flow_kg_s=0.06
 ):
-    """Executes a full simulation run over specified hours."""
-    press = CuringPress(mass=mass, params=params, kp=kp, ki=ki, kd=kd)
-    n_steps = int(hours * 3600 / dt)
+    """
+    Executes a multi-press simulation across all presses defined in the production schedule.
+    """
+    times, schedules_dict, df_schedule = load_schedule_from_csv(schedule_filepath, hours=hours, dt=dt)
+    n_steps = len(times)
 
-    times = np.arange(n_steps) * dt
-    schedule = np.ones(n_steps, dtype=bool)
+    presses = {
+        p_id: CuringPress(press_id=p_id, mass=mass, params=params, kp=kp, ki=ki, kd=kd)
+        for p_id in schedules_dict.keys()
+    }
 
-    # Define scheduled idle gap
-    gap_start_idx = max(0, min(int(gap_start_s / dt), n_steps))
-    gap_end_idx = max(0, min(int((gap_start_s + gap_duration_s) / dt), n_steps))
-    schedule[gap_start_idx:gap_end_idx] = False
+    peak_controller = PeakSmoothingController(max_allowed_flow_kg_s=max_boiler_flow_kg_s)
 
-    T_hist, u_hist, steam_hist, stage_hist = [], [], [], []
+    # Data structures to store time-series histories per press
+    history = {
+        p_id: {
+            "T": [],
+            "u": [],
+            "steam_flow": [],
+            "stage": [],
+            "cum_steam": []
+        }
+        for p_id in presses.keys()
+    }
+    
+    total_boiler_flow = []
 
     for i in range(n_steps):
-        T_val, u_val, steam_flow = press.step(dt, schedule[i], smart_idle_shutoff)
-        T_hist.append(T_val)
-        u_hist.append(u_val)
-        steam_hist.append(steam_flow)
-        stage_hist.append(press.stage)
+        # Step 1: Gather raw requested valve signals from all presses
+        raw_valve_signals = {
+            p_id: press.get_requested_valve_signal(dt, schedules_dict[p_id][i], smart_idle_shutoff)
+            for p_id, press in presses.items()
+        }
+
+        # Step 2: Apply peak demand smoothing across presses
+        final_valve_signals = peak_controller.apply_smoothing(
+            raw_valve_signals, 
+            presses, 
+            enable_smoothing=enable_peak_smoothing
+        )
+
+        step_boiler_flow = 0.0
+
+        # Step 3: Apply physical step to all presses
+        for p_id, press in presses.items():
+            u_final = final_valve_signals[p_id]
+            T_val, u_applied, flow_rate = press.apply_physics_step(u_final, dt)
+
+            history[p_id]["T"].append(T_val)
+            history[p_id]["u"].append(u_applied)
+            history[p_id]["steam_flow"].append(flow_rate)
+            history[p_id]["stage"].append(press.stage)
+            history[p_id]["cum_steam"].append(press.steam_used_kg)
+
+            step_boiler_flow += flow_rate
+
+        total_boiler_flow.append(step_boiler_flow)
+
+    total_steam_kg = sum(press.steam_used_kg for press in presses.values())
+    peak_boiler_flow_kg_s = max(total_boiler_flow)
 
     return (
         times,
-        np.array(T_hist),
-        np.array(u_hist),
-        np.array(steam_hist),
-        stage_hist,
-        press.steam_used_kg
+        history,
+        np.array(total_boiler_flow),
+        total_steam_kg,
+        peak_boiler_flow_kg_s,
+        df_schedule
     )
 
 
 if __name__ == "__main__":
-    print("--- Running Modular Digital Twin Simulation Test ---")
+    print("--- Running Multi-Press Digital Twin Simulation Test ---")
     
-    # Run Smart Control
-    t_s, T_s, u_s, flow_s, stages_s, total_s = run_simulation(smart_idle_shutoff=True)
-    
-    # Run Naive Control
-    t_n, T_n, u_n, flow_n, stages_n, total_n = run_simulation(smart_idle_shutoff=False)
+    # 1. Run Conventional Unmanaged Simulation (No peak smoothing, 15% idle crack)
+    t_conv, hist_conv, flow_conv, total_conv, peak_conv, _ = run_multi_press_simulation(
+        smart_idle_shutoff=False,
+        enable_peak_smoothing=False
+    )
 
-    saved_kg = total_n - total_s
-    pct_saved = (saved_kg / total_n) * 100.0
+    # 2. Run Smart Managed Simulation (Peak smoothing + 0% idle shutoff)
+    t_smart, hist_smart, flow_smart, total_smart, peak_smart, _ = run_multi_press_simulation(
+        smart_idle_shutoff=True,
+        enable_peak_smoothing=True
+    )
 
-    print(f"Naive Steam Consumption  : {total_n:.2f} kg")
-    print(f"Smart Steam Consumption  : {total_s:.2f} kg")
-    print(f"Steam Savings            : {saved_kg:.2f} kg ({pct_saved:.1f}%)")
+    steam_saved = total_conv - total_smart
+    pct_saved = (steam_saved / total_conv) * 100.0
+    peak_flattened_pct = ((peak_conv - peak_smart) / peak_conv) * 100.0
+
+    print(f"Conventional Total Steam : {total_conv:.2f} kg | Peak Flow: {peak_conv:.4f} kg/s")
+    print(f"Smart Managed Total Steam: {total_smart:.2f} kg | Peak Flow: {peak_smart:.4f} kg/s")
+    print(f"Total Steam Saved       : {steam_saved:.2f} kg ({pct_saved:.1f}%)")
+    print(f"Boiler Peak Flattened    : {peak_flattened_pct:.1f}% Reduction in Peak Demand Spike")
