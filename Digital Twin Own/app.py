@@ -246,7 +246,7 @@ fig_boiler.update_layout(
     plot_bgcolor='rgba(0,0,0,0)',
     paper_bgcolor='rgba(0,0,0,0)'
 )
-st.plotly_chart(fig_boiler, use_container_width=True)
+st.plotly_chart(fig_boiler, use_container_width=True, key="boiler_total_peak_chart")
 
 st.write("---")
 
@@ -282,7 +282,7 @@ for idx, p_id in enumerate(press_ids):
                 plot_bgcolor='rgba(0,0,0,0)',
                 paper_bgcolor='rgba(0,0,0,0)'
             )
-            st.plotly_chart(fig_p_temp, use_container_width=True)
+            st.plotly_chart(fig_p_temp, use_container_width=True, key=f"temp_chart_{p_id}_{idx}")
 
         with col_right:
             st.markdown("#### Valve Control Signal (u)")
@@ -297,7 +297,7 @@ for idx, p_id in enumerate(press_ids):
                 plot_bgcolor='rgba(0,0,0,0)',
                 paper_bgcolor='rgba(0,0,0,0)'
             )
-            st.plotly_chart(fig_p_valve, use_container_width=True)
+            st.plotly_chart(fig_p_valve, use_container_width=True, key=f"valve_chart_{p_id}_{idx}")
 
 st.write("---")
 
