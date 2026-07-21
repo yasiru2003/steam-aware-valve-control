@@ -60,7 +60,8 @@ def run_multi_press_simulation(
         # Step 2: Apply peak demand smoothing across presses
         final_valve_signals = peak_controller.apply_smoothing(
             raw_valve_signals, 
-            presses, 
+            presses,
+            dt=dt,
             enable_smoothing=enable_peak_smoothing
         )
 

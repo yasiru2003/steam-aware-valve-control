@@ -1,5 +1,5 @@
 """
-Control algorithms for steam valve control (PID Controller & Peak Demand Smoothing).
+Control algorithms for steam valve control (PID Controller & Budget-Based Priority Throttling).
 """
 
 import numpy as np
@@ -52,44 +52,98 @@ class PID:
 
 class PeakSmoothingController:
     """
-    Multi-Press Peak Demand Controller.
-    Staggers and limits simultaneous valve ramp-ups across presses so total boiler steam flow rate
-    does not spike above max_allowed_flow_kg_s.
+    Budget-Based Priority Throttling Controller with Escalation Timer.
+    
+    Algorithm:
+    1. Total system steam budget = total_steam_budget (e.g. 1.5 full-press equivalents).
+    2. Rank heating presses by estimated time remaining to setpoint (closest first).
+    3. Top ranked press gets 100% steam (1.0).
+    4. Leftover budget (total_budget - 1.0 = 0.5) is split equally among remaining heating presses,
+       respecting a minimum floor (e.g. 0.25 = 25%).
+    5. Floor Breach: If splitting drops below 0.25, lowest priority press is delayed (0.0).
+    6. Escalation Timer: If a press has been capped/delayed > 15 mins (900s), force-promote to 100%
+       to prevent starvation.
     """
-    def __init__(self, max_allowed_flow_kg_s: float = 0.06):
+    def __init__(
+        self, 
+        max_allowed_flow_kg_s: float = 0.06, 
+        total_steam_budget: float = 1.5,
+        floor_pct: float = 0.25,
+        escalation_time_s: float = 15.0 * 60.0
+    ):
         self.max_allowed_flow_kg_s = max_allowed_flow_kg_s
+        self.total_steam_budget = total_steam_budget
+        self.floor_pct = floor_pct
+        self.escalation_time_s = escalation_time_s
+        
+        # Track time spent below full steam per press
+        self.time_below_full = {}
 
-    def apply_smoothing(self, valve_signals: dict, press_objects: dict, enable_smoothing: bool = True) -> dict:
-        """
-        Adjusts requested valve opening ratios across all presses if simultaneous demand spikes.
-        """
+    def apply_smoothing(self, valve_signals: dict, press_objects: dict, dt: float = 5.0, enable_smoothing: bool = True) -> dict:
         if not enable_smoothing:
-            return valve_signals  # Return raw unmanaged valve signals
+            return valve_signals  # Unmanaged baseline
 
-        # Calculate estimated total steam flow rate if raw valve signals are used
-        total_estimated_flow = 0.0
-        heating_press_ids = []
+        # 1. Update escalation timers
+        for p_id, u_req in valve_signals.items():
+            if p_id not in self.time_below_full:
+                self.time_below_full[p_id] = 0.0
 
-        for p_id, press in press_objects.items():
-            u = valve_signals[p_id]
-            Q_est = u * press.params["UA_steam"] * max(press.params["T_sat"] - press.T_press, 0.0)
-            flow_est = Q_est / press.params["h_fg"]
-            total_estimated_flow += flow_est
+            press = press_objects[p_id]
+            if press.stage == "heating" and u_req > 0.5:
+                # Press wants significant steam but may be throttled
+                self.time_below_full[p_id] += dt
+            else:
+                self.time_below_full[p_id] = 0.0
 
-            if press.stage == "heating" and u > 0.3:
-                heating_press_ids.append(p_id)
+        # Identify all presses currently in 'heating' stage
+        heating_pids = [
+            p_id for p_id, press in press_objects.items()
+            if press.stage == "heating" and valve_signals[p_id] > 0.1
+        ]
 
-        # If estimated flow exceeds boiler limit and multiple presses are heating simultaneously
-        if total_estimated_flow > self.max_allowed_flow_kg_s and len(heating_press_ids) > 1:
-            # Stagger heating presses: prioritize the press furthest along in heating
-            heating_press_ids.sort(key=lambda pid: press_objects[pid].T_press, reverse=True)
-            
-            # Allow highest temp press full ramp, soften valve opening for secondary heating presses
-            smoothed_signals = valve_signals.copy()
-            for rank, pid in enumerate(heating_press_ids):
-                if rank > 0:
-                    # Scale down valve signal for lower priority heating presses to smooth peak
-                    smoothed_signals[pid] = min(smoothed_signals[pid], 0.4 / (rank + 1))
-            return smoothed_signals
+        # If 1 or 0 presses heating, no budget conflict
+        if len(heating_pids) <= 1:
+            return valve_signals
 
-        return valve_signals
+        # Check for escalation force-promotions
+        escalated_pids = [
+            pid for pid in heating_pids
+            if self.time_below_full[pid] >= self.escalation_time_s
+        ]
+
+        # 2. Rank heating presses by temperature (closest to setpoint = highest priority)
+        heating_pids.sort(key=lambda pid: press_objects[pid].T_press, reverse=True)
+
+        # Move escalated presses to top priority
+        for pid in escalated_pids:
+            heating_pids.remove(pid)
+            heating_pids.insert(0, pid)
+
+        # 3. Budget allocation
+        smoothed_signals = valve_signals.copy()
+        
+        # Top ranked press gets 100% steam (1.0)
+        top_pid = heating_pids[0]
+        smoothed_signals[top_pid] = min(valve_signals[top_pid], 1.0)
+
+        remaining_budget = max(0.0, self.total_steam_budget - 1.0)
+        other_heating = heating_pids[1:]
+
+        if other_heating:
+            share = remaining_budget / len(other_heating)
+
+            for rank, pid in enumerate(other_heating):
+                if share >= self.floor_pct:
+                    # Allocate share respecting floor
+                    smoothed_signals[pid] = min(valve_signals[pid], share)
+                else:
+                    # Floor Breach: If budget share drops below floor (0.25),
+                    # allow top remaining to take floor, and delay lower priority presses (0.0)
+                    available_slots = int(remaining_budget / self.floor_pct)
+                    if rank < available_slots:
+                        smoothed_signals[pid] = min(valve_signals[pid], self.floor_pct)
+                    else:
+                        # Stagger start: delay ramp up until budget frees
+                        smoothed_signals[pid] = 0.0
+
+        return smoothed_signals
