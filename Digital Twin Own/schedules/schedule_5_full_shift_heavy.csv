@@ -1,0 +1,5 @@
+press_id,start_hour,cure_duration_hours,idle_gap_start_hour,idle_gap_duration_hours
+Press_1,0.0,6.5,7.0,1.0
+Press_2,0.5,6.5,7.5,1.0
+Press_3,1.0,6.5,8.0,1.0
+Press_4,1.5,6.5,8.5,1.0

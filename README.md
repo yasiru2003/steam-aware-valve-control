@@ -9,6 +9,11 @@ Solid tyre manufacturing relies on **curing presses** that use steam to harden r
 
 This project builds a **schedule-aware valve controller** that smooths demand peaks and automatically shuts off idle valves — cutting wasted steam without slowing production.
 
+## 📌 Project Architecture & Miro Board Links
+
+- **Miro Interactive Architecture Board**: [Miro Board: Tyre Curing Digital Twin](https://miro.com/app/board/uXjVH5QDJAs=/)
+- **Notion Integration**: Copy the URL `https://miro.com/app/board/uXjVH5QDJAs=/` and use `/miro` or `/embed` inside Notion to view the live board.
+
 ## Goal
 
 Demonstrate that a schedule-aware valve controller can reduce wasted steam — both from presses heating simultaneously and from valves left open on idle presses — while still reaching the required curing temperature. This is a **lab-scale simulation and prototype**, not a production control system.
@@ -58,14 +63,3 @@ Run the simulator under ordinary control vs. smart control and compare steam use
 
 - **Peak test** — multiple presses heating together; smart control should give a lower, smoother steam peak while still hitting target temperature.
 - **Idle test** — a press finishes with no next job; compare valve-left-open vs. auto-close, and measure steam saved.
-- **Full shift test** — total steam used over a full shift, ordinary vs. smart control, combining both effects.
-
-## Timeline
-
-| Phase | Focus |
-|-------|-------|
-| Weeks 1–2 | Learn the tyre curing process; agree scope and requirements *(current)* |
-| Weeks 3–6 | Build the digital twin and basic temperature (PID) control |
-| Weeks 7–9 | Add schedule input, peak smoothing, and idle valve shut-off |
-| Weeks 10–12 | Build edge prototype and dashboard; run test scenarios |
-| Weeks 13–14 | Compare results, write report, present findings |

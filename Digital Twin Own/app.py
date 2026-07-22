@@ -1,315 +1,383 @@
+"""
+app.py
+
+Interactive Streamlit Dashboard for Steam-Aware Tyre Curing Digital Twin.
+Supports switching between 5 Pre-Built Schedule Scenarios & Custom CSV Uploads.
+"""
+
+import os
 import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-from parameters import DEFAULT_PARAMS
-from simulation import run_multi_press_simulation
+from parameters import DEFAULT_PARAMS, TARGET_TEMP
+from press_model import CuringPress
+from pid_controller import PIDController
+from schedule_reader import load_schedule, is_curing
+from controller import ControllerNode
 
-# Set up page styling and layout
+# Page Configuration
 st.set_page_config(
-    page_title="Multi-Press Tyre Curing Digital Twin",
-    page_icon=None,
+    page_title="Steam-Aware Tyre Curing Digital Twin",
+    page_icon="♨️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Clean, professional high-contrast styling
+# Custom Styling
 st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-}
-
-.header-box {
-    background-color: #0f172a;
-    border: 1px solid #1e293b;
-    border-radius: 8px;
-    padding: 24px;
-    margin-bottom: 24px;
-}
-
-.header-title {
-    color: #f8fafc;
-    font-size: 2.1rem;
-    font-weight: 700;
-    margin-bottom: 6px;
-}
-
-.header-subtitle {
-    color: #94a3b8;
-    font-size: 1.0rem;
-    font-weight: 400;
-}
-
-.metric-container {
-    background-color: #0f172a;
-    border: 1px solid #334155;
-    border-radius: 8px;
-    padding: 18px;
-    text-align: center;
-}
-
-.metric-label {
-    font-size: 0.8rem;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600;
-    margin-bottom: 6px;
-}
-
-.metric-val {
-    font-size: 1.9rem;
-    font-weight: 700;
-    color: #f8fafc;
-}
-
-.metric-sub {
-    font-size: 0.85rem;
-    color: #38bdf8;
-    font-weight: 500;
-    margin-top: 4px;
-}
-
-.stage-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-
-.stage-heating { background-color: #7f1d1d; color: #fca5a5; }
-.stage-holding { background-color: #14532d; color: #86efac; }
-.stage-cooling { background-color: #1e3a8a; color: #93c5fd; }
-.stage-idle { background-color: #334155; color: #cbd5e1; }
-</style>
+    <style>
+    .main-header {
+        font-size: 2.2rem;
+        font-weight: 700;
+        background: linear-gradient(90deg, #FF4B4B, #FF8C00);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.2rem;
+    }
+    .sub-header {
+        font-size: 1.05rem;
+        color: #888888;
+        margin-bottom: 1.5rem;
+    }
+    .metric-card {
+        background-color: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 18px;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .metric-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #00E676;
+    }
+    .metric-value-warn {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #FF5252;
+    }
+    .metric-label {
+        font-size: 0.9rem;
+        color: #B0BEC5;
+        margin-top: 4px;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
-# Main Application Header
-st.markdown("""
-<div class="header-box">
-    <div class="header-title">Multi-Press Solid Tyre Curing Digital Twin</div>
-    <div class="header-subtitle">Schedule-Aware Valve Control, Peak Demand Demand Smoothing & Boiler Energy Optimization.</div>
-</div>
-""", unsafe_allow_html=True)
 
-# ----------------- SIDEBAR CONTROLS -----------------
-st.sidebar.title("Simulation & Schedule Setup")
+def run_app_simulation(schedule_entries, num_presses, shift_hours, dt_seconds, kp, ki, kd, steam_budget):
+    """Executes Naive vs Smart runs for given schedule entries."""
+    press_ids = list(range(1, num_presses + 1))
+    shift_duration_s = int(shift_hours * 3600)
 
-# Schedule Feed File Selector
-st.sidebar.subheader("1. Production Schedule Feed")
-schedule_source = st.sidebar.radio(
-    "Schedule Source",
-    options=["Default 4-Press Schedule", "Upload Custom CSV Schedule"],
-    index=0
-)
+    results = {}
+    for mode in ["naive", "smart"]:
+        presses = {pid: CuringPress(pid) for pid in press_ids}
+        pids = {pid: PIDController(kp, ki, kd) for pid in press_ids}
+        controller_node = ControllerNode(press_ids, steam_budget=steam_budget)
 
-schedule_file = "Digital Twin Own/sample_schedule.csv"
+        log = []
+        current_time = 0.0
 
-if schedule_source == "Upload Custom CSV Schedule":
-    uploaded_file = st.sidebar.file_uploader("Upload Schedule CSV", type=["csv"])
-    if uploaded_file is not None:
-        schedule_file = uploaded_file
-    else:
-        st.sidebar.info("Using default schedule until custom CSV is uploaded.")
+        while current_time < shift_duration_s:
+            curing_status = {
+                pid: is_curing(pid, current_time, schedule_entries)
+                for pid in press_ids
+            }
 
-# Physical Parameters Expander
-with st.sidebar.expander("2. Press Physical Parameters", expanded=False):
-    mass = st.number_input("Press Mould Mass (kg)", min_value=50.0, max_value=2000.0, value=300.0, step=25.0)
-    ua_steam = st.slider("Steam Conductance (UA_steam, W/K)", min_value=100.0, max_value=1000.0, value=DEFAULT_PARAMS["UA_steam"], step=25.0)
-    h_loss = st.slider("Heat Loss Coeff (h_loss, W/m²·K)", min_value=2.0, max_value=50.0, value=DEFAULT_PARAMS["h_loss"], step=1.0)
-    t_sat = st.slider("Steam Saturation Temp (T_sat, °C)", min_value=100.0, max_value=200.0, value=DEFAULT_PARAMS["T_sat"], step=1.0)
-    t_amb = st.slider("Ambient Room Temp (T_amb, °C)", min_value=10.0, max_value=50.0, value=DEFAULT_PARAMS["T_ambient"], step=1.0)
+            raw_demands = {
+                pid: pids[pid].compute(TARGET_TEMP, presses[pid].temperature, dt_seconds)
+                for pid in press_ids
+            }
 
-# Control Logic Expander
-with st.sidebar.expander("3. Control & Boiler Parameters", expanded=False):
-    max_boiler_flow = st.slider("Max Boiler Limit (kg/s)", min_value=0.02, max_value=0.20, value=0.06, step=0.005)
-    kp = st.slider("Kp (Proportional)", min_value=0.001, max_value=0.200, value=0.02, step=0.001, format="%.3f")
-    ki = st.slider("Ki (Integral)", min_value=0.00000, max_value=0.00200, value=0.00015, step=0.00001, format="%.5f")
-    kd = st.slider("Kd (Derivative)", min_value=0.000, max_value=0.100, value=0.01, step=0.001, format="%.3f")
-    sim_hours = st.slider("Simulation Hours", min_value=1.0, max_value=24.0, value=12.0, step=0.5)
+            press_temps = {pid: presses[pid].temperature for pid in press_ids}
 
-custom_params = {
-    "UA_steam": ua_steam,
-    "h_loss": h_loss,
-    "T_sat": t_sat,
-    "T_ambient": t_amb,
-}
+            if mode == "smart":
+                final_valves = controller_node.resolve(raw_demands, curing_status, dt_seconds, press_temps)
+            else:
+                # Human Operator: full PID during curing, 15% cracked open during idle (u=0.15)
+                final_valves = {
+                    pid: (raw_demands[pid] if curing_status[pid] else 0.15)
+                    for pid in press_ids
+                }
 
-# ----------------- SIMULATION EXECUTION -----------------
-# 1. Conventional Control Run (Simultaneous Peaks + 15% Idle Crack)
-t_c, hist_c, flow_c, total_c, peak_c, df_sched = run_multi_press_simulation(
-    schedule_filepath=schedule_file,
-    mass=mass,
-    params=custom_params,
-    hours=sim_hours,
-    dt=5.0,
-    kp=kp, ki=ki, kd=kd,
-    smart_idle_shutoff=False,
-    enable_peak_smoothing=False,
-    max_boiler_flow_kg_s=max_boiler_flow
-)
+            step_entry = {"time_seconds": current_time, "time_hours": current_time / 3600.0}
+            total_flow_step = 0.0
 
-# 2. Smart Managed Control Run (Staggered Peak Smoothing + 0% Idle Shutoff)
-t_s, hist_s, flow_s, total_s, peak_s, _ = run_multi_press_simulation(
-    schedule_filepath=schedule_file,
-    mass=mass,
-    params=custom_params,
-    hours=sim_hours,
-    dt=5.0,
-    kp=kp, ki=ki, kd=kd,
-    smart_idle_shutoff=True,
-    enable_peak_smoothing=True,
-    max_boiler_flow_kg_s=max_boiler_flow
-)
+            for pid in press_ids:
+                presses[pid].update(final_valves[pid], curing_status[pid], dt_seconds)
+                state = presses[pid].get_state()
+                total_flow_step += state["steam_flow_kg_s"]
 
-hours_axis = t_c / 3600.0
-steam_saved = total_c - total_s
-pct_saved = (steam_saved / total_c) * 100.0 if total_c > 0 else 0.0
-peak_flattened_pct = ((peak_c - peak_s) / peak_c) * 100.0 if peak_c > 0 else 0.0
+                for key, value in state.items():
+                    step_entry[f"press{pid}_{key}"] = value
 
-# ----------------- KPI METRICS DISPLAY -----------------
-col1, col2, col3, col4 = st.columns(4)
+            step_entry["total_steam_flow_kg_s"] = total_flow_step
+            log.append(step_entry)
 
-with col1:
-    st.markdown(f"""
-    <div class="metric-container">
-        <div class="metric-label">Conventional Steam</div>
-        <div class="metric-val">{total_c:.2f} <span style="font-size:1.0rem">kg</span></div>
-        <div class="metric-sub" style="color:#ef4444">15% Idle Waste</div>
-    </div>
-    """, unsafe_allow_html=True)
+            current_time += dt_seconds
 
-with col2:
-    st.markdown(f"""
-    <div class="metric-container">
-        <div class="metric-label">Smart Managed Steam</div>
-        <div class="metric-val">{total_s:.2f} <span style="font-size:1.0rem">kg</span></div>
-        <div class="metric-sub" style="color:#38bdf8">0% Auto Shutoff</div>
-    </div>
-    """, unsafe_allow_html=True)
+        results[mode] = pd.DataFrame(log)
 
-with col3:
-    st.markdown(f"""
-    <div class="metric-container">
-        <div class="metric-label">Total Steam Saved</div>
-        <div class="metric-val">{steam_saved:.2f} <span style="font-size:1.0rem">kg</span></div>
-        <div class="metric-sub" style="color:#34d399">-{pct_saved:.1f}% Consumption</div>
-    </div>
-    """, unsafe_allow_html=True)
+    return results, press_ids
 
-with col4:
-    st.markdown(f"""
-    <div class="metric-container">
-        <div class="metric-label">Boiler Peak Flattened</div>
-        <div class="metric-val">{peak_s:.4f} <span style="font-size:1.0rem">kg/s</span></div>
-        <div class="metric-sub" style="color:#a78bfa">-{peak_flattened_pct:.1f}% Peak Spike</div>
-    </div>
-    """, unsafe_allow_html=True)
 
-st.write("")
+def main():
+    st.markdown('<div class="main-header">♨️ Steam-Aware Tyre Curing Digital Twin</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Multi-Schedule Simulation: Real-Time Peak Smoothing & Schedule Optimization</div>', unsafe_allow_html=True)
 
-# ----------------- COMBINED BOILER PEAK DEMAND CHART -----------------
-st.subheader("Boiler Total Steam Demand (Problem 1: Peak Demand Flattening)")
-st.markdown("Demonstrates how staggered ramp-up logic caps simultaneous warm-up peaks across presses to protect boiler pressure.")
+    base_dir = os.path.dirname(__file__)
+    schedules_dir = os.path.join(base_dir, "schedules")
 
-fig_boiler = go.Figure()
-fig_boiler.add_hline(
-    y=max_boiler_flow,
-    line_dash="dot",
-    line_color="#f59e0b",
-    annotation_text="Boiler Max Capacity Threshold",
-    annotation_position="bottom right"
-)
-fig_boiler.add_trace(go.Scatter(
-    x=hours_axis, y=flow_c,
-    mode='lines',
-    name='Conventional Unmanaged (Demand Peak Spike)',
-    line=dict(color='#ef4444', width=2, dash='dash')
-))
-fig_boiler.add_trace(go.Scatter(
-    x=hours_axis, y=flow_s,
-    mode='lines',
-    name='Smart Schedule-Aware (Peak Demand Smoothed)',
-    line=dict(color='#38bdf8', width=3)
-))
-fig_boiler.update_layout(
-    template="plotly_dark",
-    xaxis_title="Time (hours)",
-    yaxis_title="Total Boiler Steam Flow Rate (kg/s)",
-    margin=dict(l=40, r=40, t=20, b=40),
-    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-    plot_bgcolor='rgba(0,0,0,0)',
-    paper_bgcolor='rgba(0,0,0,0)'
-)
-st.plotly_chart(fig_boiler, use_container_width=True, key="boiler_total_peak_chart")
-
-st.write("---")
-
-# ----------------- INDIVIDUAL PRESS MULTI-TAB VIEWS -----------------
-st.subheader("Multi-Press Digital Twin Status & Stage Tracking")
-st.markdown("Select a press tab below to inspect its temperature profile, valve signal, and explicit cure stages (`heating`, `holding`, `cooling`, `idle`).")
-
-press_ids = list(hist_s.keys())
-tabs = st.tabs([f"Press: {p_id}" for p_id in press_ids])
-
-for idx, p_id in enumerate(press_ids):
-    with tabs[idx]:
-        col_left, col_right = st.columns([1, 1])
-
-        # Current State Information
-        current_stage = hist_s[p_id]["stage"][-1]
-        current_temp = hist_s[p_id]["T"][-1]
-        current_valve = hist_s[p_id]["u"][-1]
-
-        st.markdown(f"**Live Press Status:** Stage: `{current_stage.upper()}` | Current Temp: `{current_temp:.2f} °C` | Valve Opening: `{current_valve * 100:.1f} %`")
-
-        with col_left:
-            st.markdown("#### Temperature Profile (°C)")
-            fig_p_temp = go.Figure()
-            fig_p_temp.add_hline(y=DEFAULT_PARAMS["T_target"], line_dash="dot", line_color="#94a3b8", annotation_text="Target Setpoint (130°C)")
-            fig_p_temp.add_trace(go.Scatter(x=hours_axis, y=hist_c[p_id]["T"], mode='lines', name='Conventional', line=dict(color='#ef4444', width=2, dash='dash')))
-            fig_p_temp.add_trace(go.Scatter(x=hours_axis, y=hist_s[p_id]["T"], mode='lines', name='Smart Control', line=dict(color='#818cf8', width=3)))
-            fig_p_temp.update_layout(
-                template="plotly_dark",
-                xaxis_title="Time (hours)",
-                yaxis_title="Temperature (°C)",
-                margin=dict(l=30, r=30, t=20, b=30),
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)'
-            )
-            st.plotly_chart(fig_p_temp, use_container_width=True, key=f"temp_chart_{p_id}_{idx}")
-
-        with col_right:
-            st.markdown("#### Valve Control Signal (u)")
-            fig_p_valve = go.Figure()
-            fig_p_valve.add_trace(go.Scatter(x=hours_axis, y=hist_c[p_id]["u"], mode='lines', name='Conventional (15% Idle Crack)', line=dict(color='#ef4444', width=2, dash='dash')))
-            fig_p_valve.add_trace(go.Scatter(x=hours_axis, y=hist_s[p_id]["u"], mode='lines', name='Smart Control (0% Auto Shutoff)', line=dict(color='#34d399', width=3)))
-            fig_p_valve.update_layout(
-                template="plotly_dark",
-                xaxis_title="Time (hours)",
-                yaxis_title="Valve Ratio (0.0 to 1.0)",
-                margin=dict(l=30, r=30, t=20, b=30),
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)'
-            )
-            st.plotly_chart(fig_p_valve, use_container_width=True, key=f"valve_chart_{p_id}_{idx}")
-
-st.write("---")
-
-# ----------------- SCHEDULE FEED TABLE & EXPORT -----------------
-with st.expander("Parsed Production Schedule Feed Data"):
-    st.markdown("Here is the parsed production schedule loaded into the Digital Twin engine:")
-    st.dataframe(df_sched, use_container_width=True)
-
-    csv_data = df_sched.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="Download Schedule CSV Template",
-        data=csv_data,
-        file_name="production_schedule_template.csv",
-        mime="text/csv"
+    # --- Sidebar Controls ---
+    st.sidebar.header("🎯 Production Schedule Selection")
+    schedule_option = st.sidebar.selectbox(
+        "Select Factory Schedule (schedules/)",
+        [
+            "🔥 Schedule 1: Heavy Overlap Peak Test (schedule_1_peak_overlap.csv)",
+            "⏱️ Schedule 2: 15-Min Staggered Schedule (schedule_2_staggered_15m.csv)",
+            "📅 Schedule 3: 30-Min Staggered Schedule (schedule_3_staggered_30m.csv)",
+            "💤 Schedule 4: Long Idle Break Test (schedule_4_idle_waste_test.csv)",
+            "🏭 Schedule 5: 4-Press Heavy Double Shift (schedule_5_full_shift_heavy.csv)",
+            "📁 Upload Custom Schedule CSV"
+        ]
     )
+
+    if "Schedule 1" in schedule_option:
+        file_path = os.path.join(schedules_dir, "schedule_1_peak_overlap.csv")
+        st.sidebar.info("Stresses supervisory controller with simultaneous cold-start ramp-ups.")
+        schedule_entries = load_schedule(file_path)
+        default_num_presses = 3
+    elif "Schedule 2" in schedule_option:
+        file_path = os.path.join(schedules_dir, "schedule_2_staggered_15m.csv")
+        st.sidebar.info("15-minute staggered start times for balanced energy & speed.")
+        schedule_entries = load_schedule(file_path)
+        default_num_presses = 3
+    elif "Schedule 3" in schedule_option:
+        file_path = os.path.join(schedules_dir, "schedule_3_staggered_30m.csv")
+        st.sidebar.info("30-minute staggered start times for zero ramp-up overlap.")
+        schedule_entries = load_schedule(file_path)
+        default_num_presses = 3
+    elif "Schedule 4" in schedule_option:
+        file_path = os.path.join(schedules_dir, "schedule_4_idle_waste_test.csv")
+        st.sidebar.info("Features 3.0-hour idle breaks to test idle valve shut-off vs cracked valve leakage.")
+        schedule_entries = load_schedule(file_path)
+        default_num_presses = 3
+    elif "Schedule 5" in schedule_option:
+        file_path = os.path.join(schedules_dir, "schedule_5_full_shift_heavy.csv")
+        st.sidebar.info("4-press heavy production schedule over a full double shift.")
+        schedule_entries = load_schedule(file_path)
+        default_num_presses = 4
+    else:
+        uploaded_file = st.sidebar.file_uploader("Upload Custom CSV Schedule", type=["csv"])
+        if uploaded_file is not None:
+            schedule_entries = load_schedule(uploaded_file)
+        else:
+            file_path = os.path.join(schedules_dir, "schedule_1_peak_overlap.csv")
+            schedule_entries = load_schedule(file_path)
+        default_num_presses = 3
+
+    st.sidebar.subheader("🏭 Factory Parameters")
+    num_presses = st.sidebar.slider("Number of Active Presses", min_value=1, max_value=4, value=default_num_presses)
+    shift_hours = st.sidebar.slider("Simulation Duration (Hours)", min_value=1.0, max_value=24.0, value=16.0, step=0.5)
+    dt_seconds = st.sidebar.select_slider("Timestep Δt (Seconds)", options=[1, 5, 10, 30], value=10)
+
+    st.sidebar.subheader("🕹️ Supervisory Controller")
+    steam_budget = st.sidebar.slider("Steam Budget (Press Equivalents)", min_value=0.5, max_value=3.0, value=1.8, step=0.1)
+
+    st.sidebar.subheader("🎯 Local PID Gains")
+    kp = st.sidebar.number_input("Kp", value=0.01, format="%.4f")
+    ki = st.sidebar.number_input("Ki", value=0.001, format="%.5f")
+    kd = st.sidebar.number_input("Kd", value=0.005, format="%.4f")
+
+    # Run Simulation
+    results, press_ids = run_app_simulation(
+        schedule_entries, num_presses, shift_hours, dt_seconds,
+        kp, ki, kd, steam_budget
+    )
+
+    df_naive = results["naive"]
+    df_smart = results["smart"]
+
+    # Calculate Key Metrics
+    naive_total_steam = sum(df_naive[f"press{pid}_total_steam_used_kg"].iloc[-1] for pid in press_ids)
+    smart_total_steam = sum(df_smart[f"press{pid}_total_steam_used_kg"].iloc[-1] for pid in press_ids)
+    steam_saved_kg = naive_total_steam - smart_total_steam
+    steam_saved_pct = (steam_saved_kg / naive_total_steam * 100.0) if naive_total_steam > 0 else 0.0
+
+    naive_peak_flow = df_naive["total_steam_flow_kg_s"].max()
+    smart_peak_flow = df_smart["total_steam_flow_kg_s"].max()
+    peak_flattened_pct = ((naive_peak_flow - smart_peak_flow) / naive_peak_flow * 100.0) if naive_peak_flow > 0 else 0.0
+
+    # --- KPI Dashboard Row ---
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-value-warn">{naive_total_steam:.2f} kg</div>
+                <div class="metric-label">Human Operator Steam (u=0.15 idle)</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-value">{smart_total_steam:.2f} kg</div>
+                <div class="metric-label">Smart Control Steam (u=0.00 idle)</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-value">{steam_saved_kg:.2f} kg ({steam_saved_pct:.1f}%)</div>
+                <div class="metric-label">Steam Saved</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col4:
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-value">{peak_flattened_pct:.1f}%</div>
+                <div class="metric-label">Boiler Peak Flattened</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- Interactive Tabs for Visualizations ---
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "♨️ Aggregate Steam Flow & Peak Demand Spike",
+        "🌡️ Temperature Trajectories",
+        "🎛️ Valve Control Signals u(t)",
+        "📊 Log Data & Export"
+    ])
+
+    with tab1:
+        st.subheader("Boiler Line Aggregate Steam Flow Rate (kg/s)")
+        st.caption("🔴 Human Operator: Full PID demand during curing + valve left **15% cracked open** (u=0.15) during idle — no budget cap.  "
+                   "🟢 Smart Control: Budget-throttled, staggered, auto valve shut-off (u=0.00) during idle.")
+        fig_flow = go.Figure()
+        fig_flow.add_trace(go.Scatter(
+            x=df_naive["time_hours"], y=df_naive["total_steam_flow_kg_s"],
+            mode="lines", name="Human Operator (u=0.15 idle, no budget cap)",
+            line=dict(color="#FF5252", width=2, dash="dash")
+        ))
+        fig_flow.add_trace(go.Scatter(
+            x=df_smart["time_hours"], y=df_smart["total_steam_flow_kg_s"],
+            mode="lines", name="Smart Control (budget-throttled, u=0.00 idle)",
+            line=dict(color="#00E676", width=3),
+            fill="tozeroy", fillcolor="rgba(0, 230, 118, 0.1)"
+        ))
+        fig_flow.add_hline(y=steam_budget * 0.01333 / 1.0, line_dash="dash", line_color="#FFD54F", annotation_text=f"Boiler Line Budget Limit ({steam_budget} Press Eq)")
+        fig_flow.update_layout(
+            xaxis_title="Shift Time (Hours)",
+            yaxis_title="Steam Flow Rate (kg/s)",
+            template="plotly_dark",
+            height=600,
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis=dict(
+                rangeselector=dict(
+                    buttons=[
+                        dict(count=1, label="1h", step="hour", stepmode="backward"),
+                        dict(count=4, label="4h", step="hour", stepmode="backward"),
+                        dict(count=8, label="8h", step="hour", stepmode="backward"),
+                        dict(label="All", step="all")
+                    ],
+                    bgcolor="#1E1E1E", activecolor="#FF8C00"
+                ),
+                rangeslider=dict(visible=True, thickness=0.06),
+                type="linear"
+            ),
+            margin=dict(l=60, r=30, t=80, b=80)
+        )
+        st.plotly_chart(fig_flow, use_container_width=True)
+
+    with tab2:
+        st.subheader("Curing Press Temperature Trajectories (°C)")
+        st.caption("Dotted = Human Operator path | Solid = Smart Control path. Both must reach 130°C setpoint for a valid cure.")
+        fig_temp = go.Figure()
+        colors = ["#29B6F6", "#AB47BC", "#FFA726", "#26A69A", "#EC407A"]
+
+        for idx, pid in enumerate(press_ids):
+            color = colors[idx % len(colors)]
+            fig_temp.add_trace(go.Scatter(
+                x=df_naive["time_hours"], y=df_naive[f"press{pid}_temperature"],
+                mode="lines", name=f"Press {pid} — Human Operator",
+                line=dict(color=color, width=1.5, dash="dot")
+            ))
+            fig_temp.add_trace(go.Scatter(
+                x=df_smart["time_hours"], y=df_smart[f"press{pid}_temperature"],
+                mode="lines", name=f"Press {pid} — Smart Control",
+                line=dict(color=color, width=2.5)
+            ))
+
+        fig_temp.add_hline(y=TARGET_TEMP, line_dash="dash", line_color="#FFD54F", annotation_text=f"Target Setpoint ({TARGET_TEMP}°C)")
+        fig_temp.update_layout(
+            xaxis_title="Shift Time (Hours)",
+            yaxis_title="Temperature (°C)",
+            template="plotly_dark",
+            height=650,
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis=dict(
+                rangeselector=dict(
+                    buttons=[
+                        dict(count=1, label="1h", step="hour", stepmode="backward"),
+                        dict(count=4, label="4h", step="hour", stepmode="backward"),
+                        dict(count=8, label="8h", step="hour", stepmode="backward"),
+                        dict(label="All", step="all")
+                    ],
+                    bgcolor="#1E1E1E", activecolor="#FF8C00"
+                ),
+                rangeslider=dict(visible=True, thickness=0.06),
+                type="linear"
+            ),
+            yaxis=dict(range=[25, 145]),
+            margin=dict(l=60, r=30, t=80, b=80)
+        )
+        st.plotly_chart(fig_temp, use_container_width=True)
+
+    with tab3:
+        st.subheader("Valve Opening Control Signals u(t) [0.0 - 1.0]")
+        st.caption("🔴 Dashed = Human Operator (u=0.15 during idle) | 🟢 Solid = Smart Control (u=0.00 auto shut-off during idle)")
+        fig_valve = make_subplots(rows=len(press_ids), cols=1, shared_xaxes=True,
+                                  subplot_titles=[f"Press {pid} Valve Signal" for pid in press_ids])
+
+        for idx, pid in enumerate(press_ids):
+            fig_valve.add_trace(go.Scatter(
+                x=df_naive["time_hours"], y=df_naive[f"press{pid}_valve_opening"],
+                mode="lines", name=f"Press {pid} — Human Operator",
+                line=dict(color="#FF5252", width=1.5, dash="dash")
+            ), row=idx+1, col=1)
+
+            fig_valve.add_trace(go.Scatter(
+                x=df_smart["time_hours"], y=df_smart[f"press{pid}_valve_opening"],
+                mode="lines", name=f"Press {pid} — Smart Control",
+                line=dict(color="#00E676", width=2)
+            ), row=idx+1, col=1)
+
+        fig_valve.update_layout(
+            template="plotly_dark",
+            height=380 * len(press_ids),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
+            hovermode="x unified",
+            margin=dict(l=60, r=30, t=60, b=60)
+        )
+        fig_valve.update_xaxes(title_text="Shift Time (Hours)", row=len(press_ids), col=1)
+        fig_valve.update_yaxes(title_text="Valve u(t)", range=[-0.05, 1.1])
+        st.plotly_chart(fig_valve, use_container_width=True)
+
+    with tab4:
+        st.subheader("Simulation Log Inspection & Download")
+        st.dataframe(df_smart.style.format(precision=3), use_container_width=True)
+
+
+if __name__ == "__main__":
+    main()
