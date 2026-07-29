@@ -161,11 +161,11 @@ def total_steam_used(log, press_ids=None):
 
 if __name__ == "__main__":
     schedule_files = [
-        ("schedule_1_peak_overlap.csv", "🔥 Schedule 1: Heavy Overlap Peak Test (0m, 0m, 0m)"),
-        ("schedule_2_staggered_15m.csv", "⏱️ Schedule 2: 15-Min Staggered Schedule (0m, 15m, 30m)"),
-        ("schedule_3_staggered_30m.csv", "📅 Schedule 3: 30-Min Staggered Schedule (0m, 30m, 60m)"),
-        ("schedule_4_idle_waste_test.csv", "💤 Schedule 4: Long Idle Break Test (3.0h Idle Gap)"),
-        ("schedule_5_full_shift_heavy.csv", "🏭 Schedule 5: 4-Press Heavy Double Shift (4 Presses)"),
+        ("schedule_1_peak_overlap.csv", " Schedule 1: Heavy Overlap Peak Test (0m, 0m, 0m)"),
+        ("schedule_2_staggered_15m.csv", " Schedule 2: 15-Min Staggered Schedule (0m, 15m, 30m)"),
+        ("schedule_3_staggered_30m.csv", " Schedule 3: 30-Min Staggered Schedule (0m, 30m, 60m)"),
+        ("schedule_4_idle_waste_test.csv", " Schedule 4: Long Idle Break Test (3.0h Idle Gap)"),
+        ("schedule_5_full_shift_heavy.csv", " Schedule 5: 4-Press Heavy Double Shift (4 Presses)"),
     ]
 
     print("========================================================================")
