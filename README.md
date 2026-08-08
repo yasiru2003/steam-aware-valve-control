@@ -1,4 +1,4 @@
-# 🏭 Press Temperature Control & Digital Twin Guide
+# Press Temperature Control & Digital Twin Guide
 
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -7,30 +7,30 @@
 
 ---
 
-## 🌟 1. System Overview
+## 1. System Overview
 
 This project simulates a highly efficient thermal control system for an industrial press. It is designed to optimize energy consumption and maintain exact curing temperatures. 
 
 **Key Features:**
-- 📅 Reads production schedules dynamically from CSV files.
-- 🌡️ Calculates predictive pre-heating times based on ambient room temperature.
-- 🎛️ Uses a PID controller with feedforward compensation to prevent thermal lag and overshoot.
+- Reads production schedules dynamically from CSV files.
+- Calculates predictive pre-heating times based on ambient room temperature.
+- Uses a PID controller with feedforward compensation to prevent thermal lag and overshoot.
 
 ---
 
-## 🏗️ 2. Architecture & File Structure
+## 2. Architecture & File Structure
 
 ```text
 Project_Updated/
-├── schedule_fetcher.py   # 📅 Reads and parses press schedules from schedule.csv
-├── pid_controller.py     # 🎛️ PID controller (anti-windup & feedforward compensation)
-├── controller.py         # 🧠 State machine node and mode management
-├── simulation.py         # 🏭 Thermal physics simulation model & execution loop
+├── schedule_fetcher.py   # Reads and parses press schedules from schedule.csv
+├── pid_controller.py     # PID controller (anti-windup & feedforward compensation)
+├── controller.py         # State machine node and mode management
+├── simulation.py         # Thermal physics simulation model & execution loop
 └── schedules/
-    └── schedule.csv      # 📊 Press scheduling data (Start In / Start Out times)
+    └── schedule.csv      # Press scheduling data (Start In / Start Out times)
 ```
 
-### 🧩 Module Responsibilities
+### Module Responsibilities
 
 1. **`schedule_fetcher.py`**
    - Loads schedule data from `schedules/schedule.csv` using `pandas`.
@@ -55,28 +55,28 @@ Project_Updated/
 
 ---
 
-## 🔬 3. Thermal Physics Model
+## 3. Thermal Physics Model
 
 The plant temperature updates at each 1-minute time step ($dt = 1.0$) according to:
 
-- 🔥 **Heating Rate**: `valve_position * 0.02` °C per minute
-- ❄️ **Cooling Rate**: `(current_temperature - ambient_temperature) * 0.005` °C per minute
-- 📈 **Net Change**: `temperature += (heating_rate - cooling_rate) * dt`
+- **Heating Rate**: `valve_position * 0.02` °C per minute
+- **Cooling Rate**: `(current_temperature - ambient_temperature) * 0.005` °C per minute
+- **Net Change**: `temperature += (heating_rate - cooling_rate) * dt`
 
-### ⚖️ Steady-State Heat Loss Balance
+### Steady-State Heat Loss Balance
 At the target curing temperature (**130 °C**) and room temperature (**25 °C**):
 - **Cooling Rate** = `(130 - 25) * 0.005 = 0.525` °C per minute
 - **Required Valve Position** = `0.525 / 0.02 = 26.25%`
 
-> 💡 *This baseline feedforward ensures zero lag, zero oscillation, and zero overshoot when transitioning into curing mode.*
+> *This baseline feedforward ensures zero lag, zero oscillation, and zero overshoot when transitioning into curing mode.*
 
 ---
 
-## ⏱️ 4. Predictive Pre-Heating Logic
+## 4. Predictive Pre-Heating Logic
 
 Instead of starting pre-heat at an arbitrary fixed time or starting curing cold, the system dynamically calculates required pre-heating minutes based on current room temperature.
 
-### 📐 Formula & Calculation Step
+### Formula & Calculation Step
 
 1. **Calculate Needed Temperature Rise**:
    `temp_gap = target_temperature - current_room_temperature`
@@ -87,7 +87,7 @@ Instead of starting pre-heat at an arbitrary fixed time or starting curing cold,
 4. **Dynamic Start Time**:
    `preheat_start_time = start_in_time - preheat_minutes`
 
-#### 🌴 Example (Sri Lanka Room Temp: 25 °C)
+#### Example (Sri Lanka Room Temp: 25 °C)
 - **Room Temp**: 25 °C
 - **Target Temp**: 180 °C
 - **Required Preheat Time**: **101 minutes** (~ 1 hour 41 mins)
@@ -96,7 +96,7 @@ Instead of starting pre-heat at an arbitrary fixed time or starting curing cold,
 
 ---
 
-## ⚡ 5. Strict State Machine & Dynamic Energy-Saving Standby
+## 5. Strict State Machine & Dynamic Energy-Saving Standby
 
 To optimize energy efficiency during changeovers between tyres, the controller dynamically manages standby setpoints:
 
@@ -111,17 +111,17 @@ graph TD
     F --> G[CURING <br> Next Tyre]
 ```
 
-### ⚙️ Mode Behaviors
-- 💤 **`IDLE`**: Valve = 0.00% (Ambient Room Temp).
-- 🚀 **`PREHEAT`**: Valve = 100.00% (Full heating power to reach 180 °C).
-- ♨️ **`CURING`**: PID Control maintaining 180 °C (Valve ≈ 38.75%).
-- 🛡️ **`STANDBY` (Short Gaps $\le 60$ mins)**: Throttles valve down to $\approx 10-31\%$ toward a reduced standby setpoint (150 °C), saving substantial energy while keeping the press warm.
-- 🔄 **`PREHEAT` (Inter-cycle)**: Dynamically triggered based on real-time sensor temperature so the press ramps back to 180 °C exactly on time for the next tyre.
-- 📉 **`COOLING` (Long Gaps $> 60$ mins)**: Valve = 0.00% (Natural air cooling down to room temperature).
+### Mode Behaviors
+- **`IDLE`**: Valve = 0.00% (Ambient Room Temp).
+- **`PREHEAT`**: Valve = 100.00% (Full heating power to reach 180 °C).
+- **`CURING`**: PID Control maintaining 180 °C (Valve ≈ 38.75%).
+- **`STANDBY` (Short Gaps $\le 60$ mins)**: Throttles valve down to $\approx 10-31\%$ toward a reduced standby setpoint (150 °C), saving substantial energy while keeping the press warm.
+- **`PREHEAT` (Inter-cycle)**: Dynamically triggered based on real-time sensor temperature so the press ramps back to 180 °C exactly on time for the next tyre.
+- **`COOLING` (Long Gaps $> 60$ mins)**: Valve = 0.00% (Natural air cooling down to room temperature).
 
 ---
 
-## 🚀 6. How to Run the Simulation
+## 6. How to Run the Simulation
 
 Run the main simulation file using Python:
 
@@ -129,7 +129,7 @@ Run the main simulation file using Python:
 python3 simulation.py
 ```
 
-### 📊 Expected Output Summary
+### Expected Output Summary
 ```text
 Loaded Schedule for P001: Start In = 08:00, Start Out = 12:00
 Initial Room Temp: 25.0 °C -> Calculated Preheat Time: 101 mins
