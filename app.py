@@ -151,6 +151,32 @@ def calculate_preheat_minutes(start_temp, target_temp, ambient_temp, heat_coeff,
         minutes += 1
     return minutes
 
+def calculate_hold_threshold(target_temp, ambient_temp, heating_coeff, cooling_coeff):
+    """
+    Calculates the dynamic break-even idle gap duration (in minutes).
+    Replaces the fixed cutoff with a cost-based decision:
+    - hold_cost: Steam spent keeping the press near cure temperature for the whole gap.
+    - shut_cost: Extra reheat energy needed because the press cooled down during the gap.
+    
+    If gap < threshold, holding warm (STANDBY) is cheaper.
+    If gap >= threshold, shutting off completely (COOLING) is cheaper.
+    """
+    import math
+    q_loss = (target_temp - ambient_temp) * cooling_coeff / heating_coeff
+    tau = 1.0 / cooling_coeff
+    
+    for g in range(1, 1440):
+        hold_cost = q_loss * g
+        T_g = ambient_temp + (target_temp - ambient_temp) * math.exp(-g / tau)
+        
+        needed_reheat = calculate_preheat_minutes(T_g, target_temp, ambient_temp, heating_coeff, cooling_coeff)
+        shut_cost = 100.0 * needed_reheat
+        
+        if hold_cost > shut_cost:
+            return float(g)
+            
+    return 1440.0
+
 def build_simulation_plot(with_disturbance):
     # Fetch Schedule
     if "schedule.csv" in schedule_source:
@@ -197,7 +223,6 @@ def build_simulation_plot(with_disturbance):
         feedforward=(target_temperature - ambient_temperature) * cooling_coeff / heating_coeff
     )
     disturbance_model = ThermalDisturbance(enable_tyre_shock=with_disturbance)
-    MAX_STANDBY_MINUTES = 60
     STANDBY_TEMP = 100.0
 
     history = []
@@ -250,7 +275,14 @@ def build_simulation_plot(with_disturbance):
                                 datetime.combine(dummy_date, prev_out)
                             ).total_seconds() / 60.0
 
-                            if gap_mins <= MAX_STANDBY_MINUTES:
+                            dynamic_hold_threshold = calculate_hold_threshold(
+                                target_temperature,
+                                ambient_temperature,
+                                heating_coeff,
+                                cooling_coeff
+                            )
+
+                            if gap_mins <= dynamic_hold_threshold:
                                 needed_reheat = calculate_preheat_minutes(
                                     plant.temperature,
                                     target_temperature,

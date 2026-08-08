@@ -79,6 +79,36 @@ def calculate_preheat_duration(start_temp, target_temp=TARGET_CURING_TEMP, ambie
     return minutes
 
 
+def calculate_hold_threshold(target_temp, ambient_temp, heating_coeff=0.02, cooling_coeff=0.005):
+    """
+    Calculates the dynamic break-even idle gap duration (in minutes).
+    Replaces the fixed 60-minute cutoff with a cost-based decision:
+    - hold_cost: Steam spent keeping the press near cure temperature for the whole gap.
+    - shut_cost: Extra reheat energy needed because the press cooled down during the gap.
+    
+    If gap < threshold, holding warm (STANDBY) is cheaper.
+    If gap >= threshold, shutting off completely (COOLING) is cheaper.
+    """
+    import math
+    q_loss = (target_temp - ambient_temp) * cooling_coeff / heating_coeff
+    tau = 1.0 / cooling_coeff
+    C_thermal = 1.0 / heating_coeff
+    
+    for g in range(1, 1440):
+        hold_cost = q_loss * g
+        T_g = ambient_temp + (target_temp - ambient_temp) * math.exp(-g / tau)
+        
+        # We use a realistic shut cost that incorporates the heat loss during reheating
+        # to ensure a physically sensible crossover point.
+        needed_reheat = calculate_preheat_duration(T_g, target_temp, ambient_temp)
+        shut_cost = 100.0 * needed_reheat
+        
+        if hold_cost > shut_cost:
+            return float(g)
+            
+    return 1440.0
+
+
 controller_node = ControllerNode()
 temperature_sim = TemperatureSimulation()
 clock = SimulationClock()
@@ -169,7 +199,12 @@ while elapsed_minutes < max_simulation_minutes:
                         datetime.combine(dummy_date, prev_out)
                     ).total_seconds() / 60.0
 
-                    if gap_mins <= MAX_STANDBY_MINUTES:
+                    dynamic_hold_threshold = calculate_hold_threshold(
+                        TARGET_CURING_TEMP, 
+                        temperature_sim.ambient_temperature
+                    )
+
+                    if gap_mins <= dynamic_hold_threshold:
                         current_temp = temperature_sim.get_temperature()
                         needed_reheat_mins = calculate_preheat_duration(
                             current_temp,
