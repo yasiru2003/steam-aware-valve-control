@@ -158,8 +158,8 @@ graph_placeholders = {pid: col.empty() for pid, col in zip(available_presses, gr
 # Live Simulation Tick Logic
 # ---------------------------------------------------------
 if st.session_state.running:
-    # Advance time by 5 minutes per tick for ~60 sec demo execution (288 ticks for 24h)
-    dt_step = 5.0
+    # Advance time by 15 minutes per tick for ~45 sec demo execution (to reduce Plotly render flickering)
+    dt_step = 15.0
     
     for pid, state in st.session_state.press_states.items():
         state.step(
@@ -270,5 +270,5 @@ for idx, (pid, state) in enumerate(st.session_state.press_states.items()):
 
 # Loop triggers
 if st.session_state.running:
-    time.sleep(0.15)
+    time.sleep(0.45)
     st.rerun()
