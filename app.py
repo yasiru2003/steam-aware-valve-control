@@ -25,9 +25,9 @@ st.markdown("""
     .header-card {
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
         border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 24px;
+        border-radius: 8px;
+        padding: 12px 20px;
+        margin-bottom: 12px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
     .header-title { color: #f8fafc; font-size: 28px; font-weight: 700; margin-bottom: 8px; }
@@ -36,9 +36,14 @@ st.markdown("""
     div[data-testid="metric-container"] {
         background-color: #1e293b;
         border: 1px solid #334155;
-        padding: 15px;
+        padding: 10px;
         border-radius: 8px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Prevent iframe collapsing which pulls the page up */
+    div[data-testid="column"] {
+        min-height: 450px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -202,9 +207,9 @@ for pid, state in st.session_state.press_states.items():
     
     metric_html = f"""
     <div style="text-align: center;">
-        <h3 style="margin-bottom:0;">{pid}</h3>
-        <p style="font-size: 24px; font-weight: bold; margin: 5px 0;">{state.plant.temperature:.1f} °C</p>
-        <span style="background-color: {color}; padding: 4px 12px; border-radius: 12px; color: white; font-weight: bold; font-size: 14px;">
+        <h4 style="margin-bottom:0;">{pid}</h4>
+        <p style="font-size: 20px; font-weight: bold; margin: 2px 0;">{state.plant.temperature:.1f} °C</p>
+        <span style="background-color: {color}; padding: 2px 10px; border-radius: 12px; color: white; font-weight: bold; font-size: 12px;">
             {current_mode}
         </span>
     </div>
@@ -258,7 +263,7 @@ for idx, (pid, state) in enumerate(st.session_state.press_states.items()):
     # Formatting
     fig.update_layout(
         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#1e293b",
-        height=550, margin=dict(l=40, r=40, t=40, b=40),
+        height=380, margin=dict(l=30, r=30, t=30, b=20),
         hovermode="x unified",
         showlegend=False
     )
