@@ -89,10 +89,7 @@ class PressSimulationState:
                 self.ambient_temperature, self.target_temperature, self.ambient_temperature, 
                 self.heating_coeff, self.cooling_coeff
             )
-            
-            today_date = datetime.today()
-            start_in_dt = datetime.combine(today_date, self.first_start_in)
-            self.preheat_start_dt = start_in_dt - timedelta(minutes=preheat_minutes)
+            self.preheat_start_dt = self.first_start_in - timedelta(minutes=preheat_minutes)
         else:
             self.first_start_in = None
             self.last_cycle_end = None
@@ -102,7 +99,6 @@ class PressSimulationState:
         # Process 'dt_step_minutes' in 1-minute physical increments for integration accuracy
         # but only append 1 history frame at the end of the tick.
         for _ in range(int(dt_step_minutes)):
-            cur_time = current_dt.time()
             setpoint = self.target_temperature
             
             if not press_power_on or not self.cycles:
@@ -111,13 +107,13 @@ class PressSimulationState:
                 self.valve = 0.0
                 self.pid.reset()
             else:
-                if cur_time < self.preheat_start_dt.time() and elapsed_minutes < 600:
+                if current_dt < self.preheat_start_dt:
                     self.mode = "IDLE"
                     setpoint = self.ambient_temperature
-                elif self.preheat_start_dt.time() <= cur_time < self.first_start_in and elapsed_minutes < 600:
+                elif self.preheat_start_dt <= current_dt < self.first_start_in:
                     self.mode = "PREHEAT"
                     setpoint = self.target_temperature
-                elif elapsed_minutes >= 990 or (cur_time >= self.last_cycle_end and elapsed_minutes > 500):
+                elif current_dt >= self.last_cycle_end + timedelta(minutes=30):
                     if self.plant.temperature > self.ambient_temperature + 1.0:
                         self.mode = "COOLING"
                     else:
@@ -126,7 +122,7 @@ class PressSimulationState:
                 else:
                     in_curing_cycle = False
                     for c in self.cycles:
-                        if c["start_in"] <= cur_time < c["start_out"]:
+                        if c["start_in"] <= current_dt < c["start_out"]:
                             self.mode = "CURING"
                             setpoint = self.target_temperature
                             in_curing_cycle = True
@@ -137,12 +133,8 @@ class PressSimulationState:
                         for i in range(len(self.cycles) - 1):
                             prev_out = self.cycles[i]["start_out"]
                             next_in = self.cycles[i + 1]["start_in"]
-                            if prev_out <= cur_time < next_in:
-                                dummy_date = datetime.today().date()
-                                gap_mins = (
-                                    datetime.combine(dummy_date, next_in) - 
-                                    datetime.combine(dummy_date, prev_out)
-                                ).total_seconds() / 60.0
+                            if prev_out <= current_dt < next_in:
+                                gap_mins = (next_in - prev_out).total_seconds() / 60.0
                                 
                                 dynamic_hold_threshold = calculate_hold_threshold(
                                     self.target_temperature, self.ambient_temperature, 
@@ -154,7 +146,7 @@ class PressSimulationState:
                                         self.plant.temperature, self.target_temperature, 
                                         self.ambient_temperature, self.heating_coeff, self.cooling_coeff
                                     )
-                                    time_rem_mins = (datetime.combine(dummy_date, next_in) - datetime.combine(dummy_date, cur_time)).total_seconds() / 60.0
+                                    time_rem_mins = (next_in - current_dt).total_seconds() / 60.0
                                     
                                     if time_rem_mins > needed_reheat:
                                         self.mode = "STANDBY"

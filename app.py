@@ -61,8 +61,8 @@ try:
 except Exception:
     available_presses = ["P001", "P002"]
     sched_df = pd.DataFrame([
-        {"Press No": "P001", "Start In": "08:00", "Start Out": "15:00"},
-        {"Press No": "P002", "Start In": "09:00", "Start Out": "16:00"}
+        {"Press No": "P001", "Start In": "2026-08-10 08:00", "Start Out": "2026-08-10 15:00"},
+        {"Press No": "P002", "Start In": "2026-08-10 09:00", "Start Out": "2026-08-10 16:00"}
     ])
 
 # Session State Initialization
@@ -168,9 +168,16 @@ if st.session_state.running:
         
     st.session_state.sim_clock += timedelta(minutes=dt_step)
     st.session_state.elapsed_minutes += dt_step
-    
-    # Stop condition: > 24h passed
-    if st.session_state.elapsed_minutes > 1440:
+    # Stop condition: check if all presses have finished their last cycle and cooled down
+    all_done = True
+    for state in st.session_state.press_states.values():
+        if state.last_cycle_end:
+            # We consider a press "done" if we are 12 hours past its last cycle
+            if st.session_state.sim_clock < state.last_cycle_end + timedelta(hours=12):
+                all_done = False
+                break
+                
+    if all_done:
         st.session_state.running = False
 
 # ---------------------------------------------------------
@@ -243,10 +250,8 @@ for idx, (pid, state) in enumerate(st.session_state.press_states.items()):
     
     # Add vertical line for first start_in
     if state.first_start_in:
-        dummy_date = df.iloc[0]["DateTime"].date()
-        start_dt = datetime.combine(dummy_date, state.first_start_in)
         # Using string datetime instead of timestamp for Plotly categorical/datetime axes
-        fig.add_vline(x=start_dt.strftime('%Y-%m-%d %H:%M:%S'), line_dash="dash", line_color=color, opacity=0.5, row=1, col=1)
+        fig.add_vline(x=state.first_start_in.strftime('%Y-%m-%d %H:%M:%S'), line_dash="dash", line_color=color, opacity=0.5, row=1, col=1)
 
 # Formatting
 fig.update_layout(
