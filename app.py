@@ -149,8 +149,10 @@ st.subheader("Live Press Status")
 metric_cols = st.columns(len(available_presses))
 metric_placeholders = {pid: col.empty() for pid, col in zip(available_presses, metric_cols)}
 
-# 2. Graph Placeholder
-graph_placeholder = st.empty()
+# 2. Graph Placeholders (Side by Side)
+st.subheader("Side-by-Side Live Telemetry")
+graph_cols = st.columns(len(available_presses))
+graph_placeholders = {pid: col.empty() for pid, col in zip(available_presses, graph_cols)}
 
 # ---------------------------------------------------------
 # Live Simulation Tick Logic
@@ -209,14 +211,6 @@ for pid, state in st.session_state.press_states.items():
     """
     metric_placeholders[pid].markdown(metric_html, unsafe_allow_html=True)
 
-# Draw Plotly Chart
-fig = make_subplots(
-    rows=2, cols=1,
-    shared_xaxes=True,
-    vertical_spacing=0.1,
-    subplot_titles=("Live Press Temperatures (°C)", "PID Valve Actuation (%)")
-)
-
 colors = ["#38bdf8", "#f472b6", "#fbbf24", "#34d399"]
 
 for idx, (pid, state) in enumerate(st.session_state.press_states.items()):
@@ -224,6 +218,14 @@ for idx, (pid, state) in enumerate(st.session_state.press_states.items()):
     
     df = pd.DataFrame(state.history)
     color = colors[idx % len(colors)]
+    
+    # Draw Plotly Chart individually per press
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        subplot_titles=(f"{pid} Temperatures (°C)", f"{pid} Valve Actuation (%)")
+    )
     
     # Temperature line
     fig.add_trace(
@@ -251,21 +253,20 @@ for idx, (pid, state) in enumerate(st.session_state.press_states.items()):
     
     # Add vertical line for first start_in
     if state.first_start_in:
-        # Using string datetime instead of timestamp for Plotly categorical/datetime axes
         fig.add_vline(x=state.first_start_in.strftime('%Y-%m-%d %H:%M:%S'), line_dash="dash", line_color=color, opacity=0.5, row=1, col=1)
 
-# Formatting
-fig.update_layout(
-    template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#1e293b",
-    height=600, margin=dict(l=40, r=40, t=40, b=40),
-    hovermode="x unified",
-    legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5)
-)
-fig.update_yaxes(title_text="Temperature (°C)", row=1, col=1, range=[15, target_temperature + 20])
-fig.update_yaxes(title_text="Valve %", row=2, col=1, range=[-5, 105])
+    # Formatting
+    fig.update_layout(
+        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#1e293b",
+        height=550, margin=dict(l=40, r=40, t=40, b=40),
+        hovermode="x unified",
+        showlegend=False
+    )
+    fig.update_yaxes(title_text="Temperature (°C)", row=1, col=1, range=[15, target_temperature + 20])
+    fig.update_yaxes(title_text="Valve %", row=2, col=1, range=[-5, 105])
 
-# Inject chart into placeholder
-graph_placeholder.plotly_chart(fig, use_container_width=True)
+    # Inject chart into its specific column placeholder
+    graph_placeholders[pid].plotly_chart(fig, use_container_width=True)
 
 # Loop triggers
 if st.session_state.running:
