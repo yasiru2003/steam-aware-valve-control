@@ -8,6 +8,7 @@ import streamlit as st
 
 from schedule_fetcher import read_csv, get_all_press_schedules
 from multi_simulation import PressSimulationState
+from hardware_bridge import ESP32SerialBridge
 
 # Page Configuration
 st.set_page_config(
@@ -79,6 +80,7 @@ if "sim_initialized" not in st.session_state:
     st.session_state.elapsed_minutes = 0
     st.session_state.sim_clock = None
     st.session_state.press_states = {}
+    st.session_state.hw_bridge = None
 
 with st.sidebar.expander("PID & Thermal Parameters", expanded=False):
     target_temperature = st.number_input("Target Cure Temperature (°C)", value=130.0, step=5.0)
@@ -105,6 +107,11 @@ sim_config = {
 st.sidebar.subheader("Production Schedule")
 st.sidebar.dataframe(sched_df, use_container_width=True, hide_index=True)
 
+# Hardware / Simulation Mode
+st.sidebar.subheader("Execution Mode")
+sim_mode = st.sidebar.radio("Mode", ["Software Simulation", "ESP32 Hardware-in-the-Loop"])
+serial_port = st.sidebar.text_input("ESP32 Serial Port", value="/dev/ttyUSB0" if sim_mode == "ESP32 Hardware-in-the-Loop" else "")
+
 # Power Switches
 st.sidebar.subheader("Manual Overrides")
 press_power_switches = {}
@@ -114,12 +121,24 @@ for pid in available_presses:
 col1, col2 = st.sidebar.columns(2)
 if col1.button("▶️ Start Live Demo", use_container_width=True, type="primary"):
     if not st.session_state.sim_initialized:
+        # Connect hardware bridge if required
+        if sim_mode == "ESP32 Hardware-in-the-Loop" and serial_port:
+            st.session_state.hw_bridge = ESP32SerialBridge(port=serial_port)
+            if not st.session_state.hw_bridge.connect():
+                st.sidebar.error("Failed to connect to ESP32! Check port and pyserial.")
+                st.stop()
+        
         # Initialize presses
         earliest_start = None
         for pid in available_presses:
             cycles = get_all_press_schedules("schedules/schedule.csv", pid)
             if not cycles: continue
-            state = PressSimulationState(pid, cycles, sim_config)
+            
+            # If in hardware mode, only apply the bridge to the first press for now 
+            # (since there's only one ESP32 connected to this port)
+            bridge = st.session_state.hw_bridge if pid == available_presses[0] else None
+            
+            state = PressSimulationState(pid, cycles, sim_config, hardware_bridge=bridge)
             st.session_state.press_states[pid] = state
             
             if state.preheat_start_dt:
@@ -138,6 +157,9 @@ if col2.button("⏸️ Stop Demo", use_container_width=True):
     st.rerun()
     
 if st.sidebar.button("🔄 Reset Demo", use_container_width=True):
+    if st.session_state.get("hw_bridge"):
+        st.session_state.hw_bridge.disconnect()
+        st.session_state.hw_bridge = None
     st.session_state.running = False
     st.session_state.sim_initialized = False
     st.rerun()

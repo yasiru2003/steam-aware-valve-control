@@ -51,10 +51,11 @@ def calculate_hold_threshold(target_temp, ambient_temp, heating_coeff, cooling_c
 
 
 class PressSimulationState:
-    def __init__(self, press_id, cycles, config):
+    def __init__(self, press_id, cycles, config, hardware_bridge=None):
         self.press_id = press_id
         self.cycles = cycles
         self.config = config
+        self.hardware_bridge = hardware_bridge
         
         self.target_temperature = config['target_temperature']
         self.ambient_temperature = config['ambient_temperature']
@@ -182,8 +183,15 @@ class PressSimulationState:
                 
             self.valve = max(0.0, min(100.0, self.valve))
             
-            # Update physics
-            self.plant.update(self.valve, disturbance_delta=dist_effect if press_power_on else 0.0, dt=1.0)
+            # Update physics (Hardware vs Software)
+            if self.hardware_bridge and self.hardware_bridge.connected:
+                # Hardware-in-the-Loop Mode: Send valve % and get real temperature
+                temp_reply = self.hardware_bridge.update_physics(self.valve if press_power_on else 0.0)
+                if temp_reply is not None:
+                    self.plant.temperature = temp_reply
+            else:
+                # Pure Software Simulation Mode
+                self.plant.update(self.valve, disturbance_delta=dist_effect if press_power_on else 0.0, dt=1.0)
             
             current_dt += timedelta(minutes=1)
             elapsed_minutes += 1
