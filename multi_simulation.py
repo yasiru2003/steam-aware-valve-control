@@ -141,22 +141,22 @@ class PressSimulationState:
                                     self.heating_coeff, self.cooling_coeff
                                 )
                                 
-                                if gap_mins <= dynamic_hold_threshold:
-                                    needed_reheat = calculate_preheat_minutes(
-                                        self.plant.temperature, self.target_temperature, 
-                                        self.ambient_temperature, self.heating_coeff, self.cooling_coeff
-                                    )
-                                    time_rem_mins = (next_in - current_dt).total_seconds() / 60.0
-                                    
-                                    if time_rem_mins > needed_reheat:
+                                needed_reheat = calculate_preheat_minutes(
+                                    self.plant.temperature, self.target_temperature, 
+                                    self.ambient_temperature, self.heating_coeff, self.cooling_coeff
+                                )
+                                time_rem_mins = (next_in - current_dt).total_seconds() / 60.0
+                                
+                                if time_rem_mins <= needed_reheat:
+                                    self.mode = "PREHEAT"
+                                    setpoint = self.target_temperature
+                                else:
+                                    if gap_mins <= dynamic_hold_threshold:
                                         self.mode = "STANDBY"
                                         setpoint = 100.0  # STANDBY_TEMP
                                     else:
-                                        self.mode = "PREHEAT"
-                                        setpoint = self.target_temperature
-                                else:
-                                    self.mode = "COOLING"
-                                    setpoint = self.ambient_temperature
+                                        self.mode = "COOLING"
+                                        setpoint = self.ambient_temperature
                                 break
 
             # Disturbance

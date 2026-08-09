@@ -110,15 +110,16 @@ col1, col2 = st.sidebar.columns(2)
 if col1.button("▶️ Start Live Demo", use_container_width=True, type="primary"):
     if not st.session_state.sim_initialized:
         # Initialize presses
-        earliest_start = datetime.today()
+        earliest_start = None
         for pid in available_presses:
             cycles = get_all_press_schedules("schedules/schedule.csv", pid)
             if not cycles: continue
             state = PressSimulationState(pid, cycles, sim_config)
             st.session_state.press_states[pid] = state
             
-            if state.preheat_start_dt and state.preheat_start_dt < earliest_start:
-                earliest_start = state.preheat_start_dt
+            if state.preheat_start_dt:
+                if earliest_start is None or state.preheat_start_dt < earliest_start:
+                    earliest_start = state.preheat_start_dt
                 
         # Start clock 30 mins before earliest preheat
         st.session_state.sim_clock = earliest_start - timedelta(minutes=30)
