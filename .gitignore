@@ -1,0 +1,66 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PlatformIO
+.pio
+.pioenvs
+.piolibdeps
+
+# IDEs and OS metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.pytest_cache/
+
+# User workspace local projects (prevent accidental commits of non-repo folders)
+CATMS/
+clinic-karma-main/
+clinic-karma-private/
+converse-build-run/
+nocode-builder/
+payroll/
+payroll-system/
+saviya-platform/
+sinhala-chatbot-ui/
+Sasnaka/
+Sasnaka copy/
+Digital Twin Own/
+*.code-workspace

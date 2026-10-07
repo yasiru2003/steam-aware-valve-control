@@ -1,0 +1,9 @@
+press_id,tyre_type,start_hour,cure_duration_hours,idle_gap_start_hour,idle_gap_duration_hours
+Press_01,Medium_Solid,1.5,6.5,999999.0,0.0
+Press_02,Medium_Solid,0.583,6.5,999999.0,0.0
+Press_03,Medium_Solid,0.0,6.5,999999.0,0.0
+Press_04,Medium_Solid,1.333,6.5,999999.0,0.0
+Press_05,Medium_Solid,0.0,6.5,999999.0,0.0
+Press_06,Medium_Solid,0.0,6.5,999999.0,0.0
+Press_07,Medium_Solid,0.75,6.5,999999.0,0.0
+Press_08,Medium_Solid,0.75,6.5,999999.0,0.0

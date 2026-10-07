@@ -1,0 +1,15 @@
+instance_type,num_presses,solver_status,solve_time_sec,baseline_peak_kgh,scheduled_peak_kgh,peak_reduction_kgh,peak_reduction_pct,time_limit_sec,time_step_min
+Homogeneous,8,Optimal,15.1,384.0,159.65,224.35,58.43,15,5
+Heterogeneous,8,Optimal,3.376,404.0,160.7,243.3,60.22,15,5
+Homogeneous,10,Optimal,15.074,480.0,192.0,288.0,60.0,15,5
+Heterogeneous,10,Optimal,15.046,551.0,225.8,325.2,59.02,15,5
+Homogeneous,12,Optimal,15.074,576.0,226.94,349.06,60.6,15,5
+Heterogeneous,12,Optimal,15.054,714.0,298.54,415.46,58.19,15,5
+Homogeneous,14,Optimal,15.077,672.0,260.62,411.38,61.22,15,5
+Heterogeneous,14,Optimal,15.062,828.0,348.99,479.01,57.85,15,5
+Homogeneous,16,Optimal,15.085,768.0,291.31,476.69,62.07,15,5
+Heterogeneous,16,Optimal,15.064,841.0,318.81,522.19,62.09,15,5
+Homogeneous,18,Optimal,15.071,864.0,334.29,529.71,61.31,15,5
+Heterogeneous,18,Optimal,13.566,1003.0,390.86,612.14,61.03,15,5
+Homogeneous,20,Optimal,15.097,960.0,361.74,598.26,62.32,15,5
+Heterogeneous,20,Optimal,15.062,1065.0,397.78,667.22,62.65,15,5
